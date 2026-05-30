@@ -3,6 +3,12 @@
 Road Safety Hackathon 2026 | CoERS, IIT Madras  
 Theme: AI in Road Safety
 
+## Live Demo
+
+📹 [Watch the demo video](https://your-youtube-link-here)
+
+---
+
 ## What it does
 Roadent is an emergency chatbot that instantly surfaces the nearest hospitals, police stations, ambulances, and towing services when a road accident occurs.
 
@@ -31,9 +37,14 @@ You need two terminals running at the same time.
 - Python 3.11 (required — pydantic-core does not support Python 3.14 yet)
 - A Mistral AI API key — get one free at [console.mistral.ai](https://console.mistral.ai)
 
-### First-time setup
+---
+
+### Mac
+
+**First-time setup**
 
 ```bash
+brew install python@3.11
 cd ~/Desktop/roadent
 /opt/homebrew/bin/python3.11 -m venv venv --without-pip
 curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
@@ -41,9 +52,9 @@ curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
 ./venv/bin/pip install fastapi==0.115.0 "uvicorn[standard]==0.30.6" pydantic==2.7.4 requests==2.32.3 python-multipart==0.0.9
 ```
 
-### Every time you want to run the app
+**Every time you want to run the app**
 
-**Terminal 1 — Backend (the AI brain)**
+Terminal 1 — Backend:
 
 ```bash
 cd ~/Desktop/roadent
@@ -52,24 +63,50 @@ export MISTRAL_API_KEY="your_mistral_api_key_here"
 python3 -m uvicorn api:app --reload --port 8000
 ```
 
-Leave this terminal running.
-
-**Terminal 2 — Frontend (the UI)**
-
-Open a new terminal window (`Cmd + N`) and run:
+Terminal 2 — Frontend (open a new window with Cmd+N):
 
 ```bash
 cd ~/Desktop/roadent
 python3 -m http.server 3000
 ```
 
-Leave this terminal running.
+Open Chrome and go to `http://localhost:3000/` then click `static/index.html`.
 
-**Open the app**
+---
 
-Go to `http://localhost:3000/` in Chrome, then click `static/index.html` from the list.
+### Windows
 
-Allow location access when prompted, then press **I need help right now** to test.
+**First-time setup**
+
+Download and install Python 3.11 from [python.org/downloads](https://www.python.org/downloads/release/python-3119/) — make sure to check **"Add Python to PATH"** during install.
+
+Then open Command Prompt and run:
+
+```cmd
+cd %USERPROFILE%\Desktop\roadent
+py -3.11 -m venv venv
+venv\Scripts\python.exe -m pip install fastapi==0.115.0 "uvicorn[standard]==0.30.6" pydantic==2.7.4 requests==2.32.3 python-multipart==0.0.9
+```
+
+**Every time you want to run the app**
+
+Terminal 1 — Backend (Command Prompt):
+
+```cmd
+cd %USERPROFILE%\Desktop\roadent
+venv\Scripts\activate
+set MISTRAL_API_KEY=your_mistral_api_key_here
+python -m uvicorn api:app --reload --port 8000
+```
+
+Terminal 2 — Frontend (open a new Command Prompt window):
+
+```cmd
+cd %USERPROFILE%\Desktop\roadent
+python -m http.server 3000
+```
+
+Open Chrome and go to `http://localhost:3000/` then click `static/index.html`.
 
 ---
 
@@ -80,7 +117,6 @@ roadent/
 ├── api.py              # FastAPI backend — all endpoints and AI logic
 ├── project_data.db     # SQLite database — 900+ emergency services
 ├── requirements.txt    # Python dependencies
-├── render.yaml         # Render.com deployment config
 ├── README.md
 └── static/
     └── index.html      # Frontend — chatbot UI with map and voice
@@ -98,13 +134,3 @@ roadent/
 | `/api/report` | POST | Generate incident report |
 | `/api/stats` | GET | Database statistics |
 | `/health` | GET | Health check |
-
----
-
-## Deploying to Render
-
-1. Push this repo to GitHub
-2. Go to [render.com](https://render.com) → New → Web Service
-3. Connect your GitHub repo — Render reads `render.yaml` automatically
-4. Add environment variable: `MISTRAL_API_KEY` = your key
-5. Click **Create Web Service** — live in ~3 minutes
