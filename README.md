@@ -31,6 +31,8 @@ Roadent is an emergency chatbot that instantly surfaces the nearest hospitals, p
 
 ## Running Locally
 
+> Clone or download this repo first, then open a terminal and navigate into the project folder before running any commands below.
+
 You need two terminals running at the same time.
 
 ### Prerequisites
@@ -44,8 +46,13 @@ You need two terminals running at the same time.
 **First-time setup**
 
 ```bash
+# Install Python 3.11 if you don't have it
 brew install python@3.11
-cd ~/Desktop/roadent
+
+# Navigate into the project folder (wherever you downloaded/cloned it)
+cd path/to/roadent
+
+# Create and set up the virtual environment
 /opt/homebrew/bin/python3.11 -m venv venv --without-pip
 curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
 ./venv/bin/python get-pip.py
@@ -57,7 +64,7 @@ curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
 Terminal 1 — Backend:
 
 ```bash
-cd ~/Desktop/roadent
+cd path/to/roadent
 source venv/bin/activate
 export MISTRAL_API_KEY="your_mistral_api_key_here"
 python3 -m uvicorn api:app --reload --port 8000
@@ -66,7 +73,7 @@ python3 -m uvicorn api:app --reload --port 8000
 Terminal 2 — Frontend (open a new window with Cmd+N):
 
 ```bash
-cd ~/Desktop/roadent
+cd path/to/roadent
 python3 -m http.server 3000
 ```
 
@@ -83,7 +90,9 @@ Download and install Python 3.11 from [python.org/downloads](https://www.python.
 Then open Command Prompt and run:
 
 ```cmd
-cd %USERPROFILE%\Desktop\roadent
+# Navigate into the project folder (wherever you downloaded/cloned it)
+cd path\to\roadent
+
 py -3.11 -m venv venv
 venv\Scripts\python.exe -m pip install fastapi==0.115.0 "uvicorn[standard]==0.30.6" pydantic==2.7.4 requests==2.32.3 python-multipart==0.0.9
 ```
@@ -93,7 +102,7 @@ venv\Scripts\python.exe -m pip install fastapi==0.115.0 "uvicorn[standard]==0.30
 Terminal 1 — Backend (Command Prompt):
 
 ```cmd
-cd %USERPROFILE%\Desktop\roadent
+cd path\to\roadent
 venv\Scripts\activate
 set MISTRAL_API_KEY=your_mistral_api_key_here
 python -m uvicorn api:app --reload --port 8000
@@ -102,11 +111,17 @@ python -m uvicorn api:app --reload --port 8000
 Terminal 2 — Frontend (open a new Command Prompt window):
 
 ```cmd
-cd %USERPROFILE%\Desktop\roadent
+cd path\to\roadent
 python -m http.server 3000
 ```
 
 Open Chrome and go to `http://localhost:3000/` then click `static/index.html`.
+
+---
+
+> **Tip:** Replace `path/to/roadent` with the actual path to wherever you put the folder.  
+> For example: `cd Downloads/roadent` or `cd Documents/roadent`  
+> If you cloned with git it'll be wherever you ran `git clone`.
 
 ---
 
