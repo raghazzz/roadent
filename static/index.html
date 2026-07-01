@@ -759,6 +759,12 @@ let mapMarkers = [];
 let chatHistory = [];    // renamed from 'history' (shadows window.history)
 let busy       = false;
 
+// Offline cache — stores last successful service results in memory
+// so if the user goes offline mid-session, we still show something useful
+let lastKnownServices = [];
+let lastKnownLat      = null;
+let lastKnownLng      = null;
+
 const TYPE_META = {
   hospital:      { emoji: '🏥', label: 'Hospitals',       color: '#d95f3b' },
   ambulance:     { emoji: '🚑', label: 'Ambulance',       color: '#5a8a6a' },
@@ -867,6 +873,10 @@ async function triggerSOS() {
 
     const services = eData.services || [];
     if (services.length > 0) {
+      // Cache services in memory for offline fallback
+      lastKnownServices = services;
+      lastKnownLat = userLat;
+      lastKnownLng = userLng;
       clearMarkers();
       services.forEach(plotMarker);
       fitMarkers();
@@ -905,7 +915,16 @@ async function triggerSOS() {
     typing.remove();
     console.error('[SOS]', err);
     showOffline();
-    addFallback();
+    // If we have cached services from a previous session, show those
+    if (lastKnownServices.length > 0) {
+      clearMarkers();
+      lastKnownServices.forEach(plotMarker);
+      fitMarkers();
+      renderServices(lastKnownServices, true, true);
+      addBot('⚡ You appear to be offline. Showing the last known nearby services from your previous session.', true);
+    } else {
+      addFallback();
+    }
   }
 
   busy = false;
@@ -951,6 +970,10 @@ async function doChat(text) {
 
     // If the reply came with service data, show cards + AI text
     if (data.services && data.services.length > 0) {
+      // Cache for offline fallback
+      lastKnownServices = data.services;
+      lastKnownLat = userLat;
+      lastKnownLng = userLng;
       clearMarkers();
       data.services.forEach(plotMarker);
       fitMarkers();
@@ -970,7 +993,13 @@ async function doChat(text) {
     typing.remove();
     console.error('[chat]', err);
     showOffline();
-    addFallback();
+    // Show cached services if available, otherwise show emergency numbers
+    if (lastKnownServices.length > 0) {
+      renderServices(lastKnownServices, true);
+      addBot('⚡ You appear to be offline. Showing last known nearby services.', true);
+    } else {
+      addFallback();
+    }
   }
 
   busy = false;
