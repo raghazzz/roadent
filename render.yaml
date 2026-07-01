@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: roadent
+    runtime: python
+    pythonVersion: "3.11.9"
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MISTRAL_API_KEY
+        sync: false
+    disk:
+      name: roadent-db
+      mountPath: /data
+      sizeGB: 1
