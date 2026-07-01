@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+*.egg-info/
+
+# Mac
+.DS_Store
+
+# Binary/generated files
+*.docx
+*.pptx
+*.zip
+*.pkl
+get-pip.py
+
+# Local dev only
+*.log

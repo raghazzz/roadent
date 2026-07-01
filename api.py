@@ -45,9 +45,20 @@ app.add_middleware(
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
 
-# Serve index.html from ./static/ at GET /
+# Serve the frontend
+from fastapi.responses import FileResponse
+
+@app.get("/", include_in_schema=False)
+def root():
+    """Serve index.html at root — works on Render and locally."""
+    index = os.path.join(BASE_DIR, "static", "index.html")
+    if os.path.exists(index):
+        return FileResponse(index)
+    return {"message": "Roadent API is running. Place index.html in static/ folder."}
+
+# Serve static assets (CSS, JS etc)
 if os.path.isdir(os.path.join(BASE_DIR, "static")):
-    app.mount("/static", StaticFiles(directory="static", html=True), name="static")
+    app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # ── Models ──────────────────────────────────────────────
