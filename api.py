@@ -28,14 +28,20 @@ app = FastAPI(title="Roadent API", version="2.0")
 
 @app.on_event("startup")
 def copy_db_to_disk():
-    """Copy bundled DB to Render persistent disk on first boot."""
-    if os.path.isdir('/data') and not os.path.exists(_RENDER_DB):
-        import shutil
+    """
+    Refresh the persistent disk from the repo's bundled DB on every boot.
+    Without Render shell access there's no other way to update /data on
+    redeploy, so the repo's project_data.db is treated as the source of
+    truth — this intentionally overwrites any rows added at runtime via
+    POST /api/services.
+    """
+    if os.path.isdir('/data'):
         if os.path.exists(_LOCAL_DB):
+            import shutil
             shutil.copy(_LOCAL_DB, _RENDER_DB)
-            print(f"[STARTUP] Copied DB to persistent disk: {_RENDER_DB}")
-    elif os.path.isdir('/data'):
-        print(f"[STARTUP] Using existing persistent DB: {_RENDER_DB}")
+            print(f"[STARTUP] Refreshed persistent DB from repo: {_RENDER_DB}")
+        else:
+            print(f"[STARTUP] No bundled DB found at {_LOCAL_DB} — keeping existing: {_RENDER_DB}")
     else:
         print(f"[STARTUP] Local dev, using: {_LOCAL_DB}")
 
