@@ -198,13 +198,44 @@
       background: var(--cream);
     }
 
+    .header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
     .header-label {
       font-size: 11px;
       font-weight: 600;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--text-soft);
-      margin-bottom: 12px;
+    }
+
+    /* First Aid quick-reference button — works fully offline, so it's
+       never gated behind the location/network-dependent disabled state
+       that SOS/Breakdown use. */
+    .first-aid-btn {
+      background: var(--sage-bg);
+      border: 1px solid rgba(90,138,106,0.3);
+      border-radius: 20px;
+      padding: 5px 12px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--sage);
+      font-family: var(--body);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .first-aid-btn:hover {
+      background: #dfeee4;
+      border-color: rgba(90,138,106,0.45);
     }
 
     /* SOS Button */
@@ -581,6 +612,141 @@
       30%          { transform: translateY(-5px); background: var(--coral-soft); }
     }
 
+    /* ── First Aid quick-reference modal ─────────
+       All content is hardcoded below in the HTML — no fetch, no API call —
+       so it opens and reads fine with zero connectivity. */
+    .first-aid-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(42,37,32,0.45);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .first-aid-overlay.show { display: flex; }
+
+    .first-aid-panel {
+      background: var(--cream);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+      max-width: 440px;
+      width: 100%;
+      max-height: 85vh;
+      overflow-y: auto;
+      padding: 20px;
+    }
+
+    .first-aid-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .first-aid-panel-title {
+      font-family: var(--display);
+      font-size: 19px;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .first-aid-close {
+      background: var(--cream2);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--text-mid);
+      font-size: 14px;
+      transition: background 0.15s;
+    }
+
+    .first-aid-close:hover { background: var(--cream3); }
+
+    .first-aid-note {
+      font-size: 12px;
+      color: var(--text-soft);
+      font-style: italic;
+      margin-bottom: 16px;
+    }
+
+    .first-aid-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .first-aid-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .first-aid-card-header {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 13px 16px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: var(--body);
+      text-align: left;
+    }
+
+    .first-aid-card-title {
+      font-size: 14.5px;
+      font-weight: 600;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .first-aid-chevron {
+      color: var(--text-soft);
+      font-size: 14px;
+      transition: transform 0.2s;
+      flex-shrink: 0;
+    }
+
+    .first-aid-card.open .first-aid-chevron {
+      transform: rotate(180deg);
+    }
+
+    .first-aid-card-body {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.25s ease;
+      padding: 0 16px;
+    }
+
+    .first-aid-card.open .first-aid-card-body {
+      max-height: 400px;
+      padding: 0 16px 14px;
+    }
+
+    .first-aid-card-body ol {
+      margin: 0;
+      padding-left: 18px;
+      font-size: 13px;
+      line-height: 1.65;
+      color: var(--text-mid);
+    }
+
+    .first-aid-card-body li { margin-bottom: 4px; }
+    .first-aid-card-body li:last-child { margin-bottom: 0; }
+
     /* ── Bottom Bar ────────────────────────────── */
     #bottom {
       flex-shrink: 0;
@@ -899,7 +1065,10 @@
   <div id="chat-panel">
 
     <div id="panel-header">
-      <div class="header-label">Emergency Help</div>
+      <div class="header-row">
+        <div class="header-label">Emergency Help</div>
+        <button class="first-aid-btn" onclick="openFirstAid()">🩹 First Aid</button>
+      </div>
       <button id="sos-btn" disabled onclick="triggerSOS()">
         <span class="sos-icon">🆘</span>
         I need help right now
@@ -942,6 +1111,81 @@
       </div>
     </div>
 
+  </div>
+</div>
+
+<!-- ── First Aid quick-reference modal ──────────
+     Content is hardcoded here, not fetched — it must work with zero
+     connectivity, the same moment a user might need it most. -->
+<div id="first-aid-modal" class="first-aid-overlay" onclick="if (event.target === this) closeFirstAid()">
+  <div class="first-aid-panel">
+    <div class="first-aid-panel-header">
+      <div class="first-aid-panel-title">🩹 First Aid Quick Reference</div>
+      <button class="first-aid-close" onclick="closeFirstAid()" aria-label="Close">✕</button>
+    </div>
+    <div class="first-aid-note">Works offline — no internet needed.</div>
+
+    <div class="first-aid-cards">
+      <div class="first-aid-card">
+        <button class="first-aid-card-header" onclick="toggleFirstAidCard(this)">
+          <span class="first-aid-card-title">🩸 Bleeding</span>
+          <span class="first-aid-chevron">⌄</span>
+        </button>
+        <div class="first-aid-card-body">
+          <ol>
+            <li>Apply firm, direct pressure to the wound with a clean cloth.</li>
+            <li>Keep pressing without lifting to check — lifting restarts bleeding.</li>
+            <li>Raise the injured area above heart level if possible.</li>
+            <li>If blood soaks through, add more cloth on top of the first layer. Call 108 for heavy bleeding.</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="first-aid-card">
+        <button class="first-aid-card-header" onclick="toggleFirstAidCard(this)">
+          <span class="first-aid-card-title">😵 Unconscious</span>
+          <span class="first-aid-chevron">⌄</span>
+        </button>
+        <div class="first-aid-card-body">
+          <ol>
+            <li>Check for breathing — look, listen, and feel for 10 seconds.</li>
+            <li>If breathing, place them on their side in the recovery position.</li>
+            <li>If not breathing, start CPR: 30 chest compressions, then 2 rescue breaths.</li>
+            <li>Call 108 immediately and stay with them until help arrives.</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="first-aid-card">
+        <button class="first-aid-card-header" onclick="toggleFirstAidCard(this)">
+          <span class="first-aid-card-title">🔥 Burns</span>
+          <span class="first-aid-chevron">⌄</span>
+        </button>
+        <div class="first-aid-card-body">
+          <ol>
+            <li>Cool the burn under running water for 10–20 minutes.</li>
+            <li>Remove jewelry or tight clothing near the area before swelling starts.</li>
+            <li>Cover loosely with a clean, non-fluffy cloth — never use ice or butter.</li>
+            <li>Seek medical help for burns larger than a palm, or on the face/hands.</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="first-aid-card">
+        <button class="first-aid-card-header" onclick="toggleFirstAidCard(this)">
+          <span class="first-aid-card-title">🦴 Fracture</span>
+          <span class="first-aid-chevron">⌄</span>
+        </button>
+        <div class="first-aid-card-body">
+          <ol>
+            <li>Don't move the injured area or try to straighten it.</li>
+            <li>Immobilize with a splint (rolled newspaper, board) if available.</li>
+            <li>Support the limb above and below the injury site.</li>
+            <li>Apply ice wrapped in cloth to reduce swelling. Call 108 for transport.</li>
+          </ol>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1743,6 +1987,27 @@ window.addEventListener('offline', showOffline);
 window.addEventListener('online', () => {
   document.getElementById('offline-notice').classList.remove('show');
   if (userLat) setStatus('online', 'Back online');
+});
+
+/* ═══════════════════════════════════════════
+   FIRST AID QUICK REFERENCE
+   All 4 cards' content lives directly in the HTML above — no fetch, no
+   API — so this opens and reads fine with zero connectivity.
+   ═══════════════════════════════════════════ */
+function openFirstAid() {
+  document.getElementById('first-aid-modal').classList.add('show');
+}
+
+function closeFirstAid() {
+  document.getElementById('first-aid-modal').classList.remove('show');
+}
+
+function toggleFirstAidCard(headerBtn) {
+  headerBtn.parentElement.classList.toggle('open');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeFirstAid();
 });
 
 /* ═══════════════════════════════════════════
