@@ -1212,6 +1212,13 @@ let busy       = false;
    NETWORK RESILIENCE
    ═══════════════════════════════════════════ */
 const FETCH_TIMEOUT_MS = 6000;
+// /api/emergency and /api/chat can transitively wait on the public Overpass
+// API (server-side timeout: 22s) or Mistral — a 6s client timeout is too
+// tight for those specifically and was causing legitimate-but-slow
+// responses to abort and get misread as "offline". Endpoints that only
+// ever hit the local DB (breakdown, geocode, report, health) keep the
+// tighter default.
+const SLOW_FETCH_TIMEOUT_MS = 20000;
 
 // Raw building block: fetch() that aborts itself after `timeoutMs`, so a
 // hung request never leaves the UI waiting forever.
@@ -1225,22 +1232,25 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS)
   }
 }
 
-// Every fetch in the app goes through this: 6s timeout, one retry on
-// failure (timeout or network error). Visible user-facing calls (SOS,
-// breakdown, chat, report) show a transient "taking longer" notice during
-// the retry; pass `{ silent: true }` (used by the background health ping)
-// to skip that and stay quiet. If the retry also fails, this rethrows so
-// the caller's own catch block runs its existing offline-fallback logic
+// Every fetch in the app goes through this: timeout + one retry on failure
+// (timeout or network error). Visible user-facing calls (SOS, breakdown,
+// chat, report) show a transient "taking longer" notice during the retry;
+// pass `{ silent: true }` (used by the background health ping) to skip
+// that and stay quiet. If the retry also fails, this rethrows so the
+// caller's own catch block runs its existing offline-fallback logic
 // (cached services, addFallback(), showOffline(), etc.) — this function
 // only owns the timeout/retry, not what happens after both attempts fail.
-async function resilientFetch(url, options = {}, { silent = false } = {}) {
+// IMPORTANT: a thrown error here (including an AbortError from our own
+// timeout) is NOT the same thing as the user being offline — callers must
+// check navigator.onLine before treating it as a connectivity loss.
+async function resilientFetch(url, options = {}, { silent = false, timeoutMs = FETCH_TIMEOUT_MS } = {}) {
   try {
-    return await fetchWithTimeout(url, options);
+    return await fetchWithTimeout(url, options, timeoutMs);
   } catch (err) {
     console.warn('[resilientFetch] first attempt failed, retrying:', err);
     const notice = silent ? null : addBot('⏳ Taking longer than usual — retrying...', true);
     try {
-      const res = await fetchWithTimeout(url, options);
+      const res = await fetchWithTimeout(url, options, timeoutMs);
       if (notice) notice.remove();
       return res;
     } catch (err2) {
@@ -1389,12 +1399,13 @@ async function triggerSOS() {
   const typing = addTyping();
 
   try {
-    // ── Step 1: fast raw lookup (no LLM, < 300ms) ──
+    // ── Step 1: fast raw lookup (no LLM, < 300ms typically — but can hit
+    // the live Overpass API internally, hence the longer timeout) ──
     const eRes = await resilientFetch(`${API}/api/emergency`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ lat: userLat, lng: userLng }),
-    });
+    }, { timeoutMs: SLOW_FETCH_TIMEOUT_MS });
 
     typing.remove();
 
@@ -1428,7 +1439,7 @@ async function triggerSOS() {
         history: chatHistory.slice(-6),
         offline: !navigator.onLine,
       }),
-    });
+    }, { timeoutMs: SLOW_FETCH_TIMEOUT_MS });
 
     if (cRes.ok) {
       const cData = await cRes.json();
@@ -1445,14 +1456,22 @@ async function triggerSOS() {
   } catch (err) {
     typing.remove();
     console.error('[SOS]', err);
-    showOffline();
+    // A thrown fetch error (including our own AbortError on timeout) is NOT
+    // the same thing as the user being offline — only the browser's own
+    // connectivity signal gets to decide that. Otherwise this was just a
+    // slow request (e.g. the live Overpass lookup taking too long).
+    if (!navigator.onLine) {
+      showOffline();
+    } else {
+      addBot('⚠️ That took longer than expected and timed out. You appear to still be online — please try again.', true);
+    }
     // If we have cached services from a previous session, show those
     if (lastKnownServices.length > 0) {
       clearMarkers();
       lastKnownServices.forEach(plotMarker);
       fitMarkers();
       renderServices(lastKnownServices, true, true);
-      addBot('⚡ You appear to be offline. Showing the last known nearby services from your previous session.', true);
+      addBot('⚡ Showing the last known nearby services from your previous session.', true);
     } else {
       addFallback();
     }
@@ -1583,7 +1602,7 @@ async function doChat(text) {
         history: chatHistory.slice(-8),   // last 8 turns = multi-turn memory
         offline: !navigator.onLine,
       }),
-    });
+    }, { timeoutMs: SLOW_FETCH_TIMEOUT_MS });
 
     typing.remove();
     if (!res.ok) throw new Error(`chat ${res.status}`);
@@ -1616,11 +1635,18 @@ async function doChat(text) {
   } catch (err) {
     typing.remove();
     console.error('[chat]', err);
-    showOffline();
+    // Same principle as the SOS catch block: a thrown fetch error (including
+    // our own AbortError on timeout) isn't a real connectivity loss unless
+    // the browser itself agrees — otherwise this was just a slow request.
+    if (!navigator.onLine) {
+      showOffline();
+    } else {
+      addBot('⚠️ That took longer than expected and timed out. You appear to still be online — please try again.', true);
+    }
     // Show cached services if available, otherwise show emergency numbers
     if (lastKnownServices.length > 0) {
       renderServices(lastKnownServices, true);
-      addBot('⚡ You appear to be offline. Showing last known nearby services.', true);
+      addBot('⚡ Showing last known nearby services.', true);
     } else {
       addFallback();
     }
