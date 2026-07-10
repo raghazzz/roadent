@@ -51,6 +51,10 @@ def copy_db_to_disk():
         print(f"[STARTUP] Local dev, using: {_LOCAL_DB}")
 
 
+# allow_origins=["*"] is demo-only — this app has no auth/cookies to leak,
+# so an open CORS policy is low-risk for a hackathon demo hitting a public
+# API from any origin. In production this would be locked down to the
+# actual app domain(s) (e.g. ["https://roadent.app"]) instead of "*".
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
@@ -92,6 +96,20 @@ async def rate_limit_middleware(request: Request, call_next):
             )
         bucket.append(now)
     return await call_next(request)
+
+
+# Registered after rate_limit_middleware so it ends up outermost (Starlette
+# builds the stack by prepending each new middleware) — that way it still
+# stamps headers on responses rate_limit_middleware short-circuits (e.g. 429s),
+# not just ones that reach the route handler.
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """Baseline security headers on every response — stop MIME-sniffing and
+    block this app from ever being framed by another site (clickjacking)."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
 
 
 @app.exception_handler(RequestValidationError)
