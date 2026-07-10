@@ -927,6 +927,76 @@ class ReportRequest(BaseModel):
     description: str = "Road accident reported via Roadent"
     services_shown: list[dict] = []   # the services that were surfaced to the user
 
+
+# National/highway numbers to fall back to when a service has no listed
+# phone — keyed by service type, so the report always points to *some*
+# working number instead of a bare "N/A".
+_REPORT_PHONE_FALLBACK = {
+    "hospital":  "No direct line — call 108",
+    "ambulance": "No direct line — call 108",
+    "police":    "No direct line — call 100",
+}
+_REPORT_PHONE_FALLBACK_DEFAULT = "No direct line — call 1073"
+
+# Keywords that mean a service's name already describes what it is (e.g.
+# "Govind Ballabh Pant Hospital") — only bare place/village names like
+# "Jamalpur" get the facility type appended for clarity.
+_REPORT_DESCRIPTIVE_KEYWORDS = {
+    "hospital":      ["hospital", "clinic", "medical", "chc", "phc", "health centre",
+                       "health center", "nursing home", "dispensary"],
+    "ambulance":      ["ambulance", "cats", "108"],
+    "police":         ["police", "thana", "chowki", "station", "outpost"],
+    "towing":         ["towing", "tow", "recovery", "crane"],
+    "petrol_pump":    ["petrol", "fuel", "hp", "ioc", "bpcl", "indian oil", "bharat",
+                        "reliance", "shell", "filling station", "pump"],
+    "mechanic":       ["mechanic", "garage", "workshop", "auto", "motors", "service station"],
+    "puncture_shop":  ["puncture", "tyre", "tire"],
+    "showroom":       ["showroom", "motors", "dealership"],
+}
+_REPORT_TYPE_LABEL = {
+    "hospital":      "Community Health Centre",
+    "ambulance":     "Ambulance Service",
+    "police":        "Police Station",
+    "towing":        "Towing Service",
+    "petrol_pump":   "Petrol Pump",
+    "mechanic":      "Mechanic",
+    "puncture_shop": "Puncture Repair Shop",
+    "showroom":      "Vehicle Showroom",
+}
+
+
+def _report_phone_display(phone: Optional[str], stype: str) -> str:
+    if phone and phone != "N/A":
+        return phone
+    return _REPORT_PHONE_FALLBACK.get(stype, _REPORT_PHONE_FALLBACK_DEFAULT)
+
+
+def _report_display_name(name: str, stype: str) -> str:
+    """Append the facility type for bare village/place names, e.g.
+    'Jamalpur' -> 'Jamalpur (Community Health Centre)'. Leaves already
+    descriptive names (containing the type's own keywords) untouched."""
+    if not name:
+        return name
+    label = _REPORT_TYPE_LABEL.get(stype)
+    if not label:
+        return name
+    keywords = _REPORT_DESCRIPTIVE_KEYWORDS.get(stype, [])
+    name_lower = name.lower()
+    if any(kw in name_lower for kw in keywords):
+        return name
+    return f"{name} ({label})"
+
+
+def _report_pick_nearest(services_of_type: list[dict]) -> Optional[dict]:
+    """Prefer the nearest service that lists a real phone number; only
+    fall back to the nearest overall if none within range have one."""
+    if not services_of_type:
+        return None
+    ordered = sorted(services_of_type, key=lambda s: s.get("distance_km", 9e9))
+    with_phone = [s for s in ordered if s.get("phone") and s.get("phone") != "N/A"]
+    return with_phone[0] if with_phone else ordered[0]
+
+
 @app.post("/api/report")
 def generate_report(req: ReportRequest):
     """
@@ -935,68 +1005,87 @@ def generate_report(req: ReportRequest):
       - Judges: proves the system worked end-to-end
       - Demo slide: show a real output
       - Real use: user can copy/share with family or insurance
+
+    Plain "====="/"-----" ASCII borders, not box-drawing characters —
+    WhatsApp (and most chat apps) render text in a proportional font, so
+    box-drawing corners and verticals drift out of alignment; plain
+    repeated-character lines don't rely on fixed character widths to look
+    like a straight line.
     """
     from datetime import datetime, timezone
 
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    # Build services summary
+    # Build services summary — bare place names get their facility type
+    # appended, and phones fall back to a working national/highway number.
     svc_lines = []
     for s in req.services_shown[:10]:   # cap at 10 for report length
+        stype = s.get("type", "")
         svc_lines.append(
-            f"  • [{s.get('type','').upper()}] {s.get('name','—')} "
+            f"  • [{stype.upper()}] {_report_display_name(s.get('name','—'), stype)} "
             f"| {s.get('distance_km','?')} km "
-            f"| {s.get('phone','N/A')}"
+            f"| {_report_phone_display(s.get('phone'), stype)}"
         )
 
     services_text = "\n".join(svc_lines) if svc_lines else "  No services recorded."
 
-    # Nearest hospital and police for the summary header
+    # Nearest hospital/ambulance/police for the summary header — prefers a
+    # service with a listed phone number over a closer one with none.
     hospitals = [s for s in req.services_shown if s.get("type") == "hospital"]
     police    = [s for s in req.services_shown if s.get("type") == "police"]
     ambulance = [s for s in req.services_shown if s.get("type") == "ambulance"]
 
-    nearest_hospital  = hospitals[0]["name"]  if hospitals  else "N/A"
-    nearest_police    = police[0]["name"]     if police     else "N/A"
-    nearest_ambulance = ambulance[0]["name"]  if ambulance  else "N/A"
+    def _critical_line(services_of_type, stype):
+        picked = _report_pick_nearest(services_of_type)
+        if not picked:
+            return "N/A"
+        name = _report_display_name(picked.get("name", "—"), stype)
+        phone = _report_phone_display(picked.get("phone"), stype)
+        return f"{name} — {phone}"
+
+    nearest_hospital  = _critical_line(hospitals, "hospital")
+    nearest_ambulance = _critical_line(ambulance, "ambulance")
+    nearest_police    = _critical_line(police, "police")
+
+    maps_url = f"https://maps.google.com/?q={req.lat:.6f},{req.lng:.6f}"
 
     report_text = f"""
-╔══════════════════════════════════════════════════════╗
-           ROADENT — INCIDENT REPORT
-╚══════════════════════════════════════════════════════╝
+========================================================
+ROADENT — INCIDENT REPORT
+========================================================
 
 Timestamp      : {timestamp}
 Location (GPS) : {req.lat:.6f}, {req.lng:.6f}
-Google Maps    : https://maps.google.com/?q={req.lat},{req.lng}
+Google Maps    : {maps_url}
 
 Incident       : {req.description}
 
-─── NEAREST CRITICAL SERVICES ────────────────────────
+-------- NEAREST CRITICAL SERVICES --------------------
   Hospital     : {nearest_hospital}
   Ambulance    : {nearest_ambulance}
   Police       : {nearest_police}
 
-─── ALL SERVICES SURFACED ────────────────────────────
+-------- ALL SERVICES SURFACED -------------------------
 {services_text}
 
-─── NATIONAL EMERGENCY NUMBERS ───────────────────────
+-------- NATIONAL EMERGENCY NUMBERS --------------------
   Ambulance    : 108
   Police       : 100
   Fire Brigade : 101
   Road Helpline: 1073
 
-─── GENERATED BY ─────────────────────────────────────
+-------- GENERATED BY ----------------------------------
   Roadent Emergency Assistant
   Road Safety Hackathon 2026 | CoERS, IIT Madras
   AI in Road Safety — Team submission
-══════════════════════════════════════════════════════
+========================================================
 """.strip()
 
     return {
         "report":    report_text,
         "timestamp": timestamp,
         "location":  {"lat": req.lat, "lng": req.lng},
-        "maps_url":  f"https://maps.google.com/?q={req.lat},{req.lng}",
+        "maps_url":  maps_url,
         "summary": {
             "nearest_hospital":  nearest_hospital,
             "nearest_ambulance": nearest_ambulance,
