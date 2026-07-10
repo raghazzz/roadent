@@ -464,6 +464,13 @@
       margin-top: 2px;
     }
 
+    .svc-navigate {
+      color: var(--sky);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .svc-navigate:hover { text-decoration: underline; }
+
     .svc-addr {
       font-size: 11px;
       color: var(--text-soft);
@@ -1780,11 +1787,17 @@ function renderServices(services, isOffline, showReportBtn = false, mode = 'emer
         ? `<div class="svc-addr">${s.address}${s.city ? ', ' + s.city : ''}</div>`
         : '';
 
+      // Universal Google Maps URL — opens the native Maps app on mobile
+      // (Android/iOS), Google Maps web in a new tab on desktop, no
+      // separate mobile/desktop branching needed on our end.
+      const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}`;
+      const navLink = `<a href="${navUrl}" target="_blank" rel="noopener noreferrer" class="svc-navigate">🧭 Navigate</a>`;
+
       card.innerHTML = `
         <div class="svc-emoji">${meta.emoji}</div>
         <div class="svc-body">
           <div class="svc-name">${s.name}</div>
-          <div class="svc-phone">${phoneDisplay}</div>
+          <div class="svc-phone">${phoneDisplay} · ${navLink}</div>
           ${addrLine}
         </div>
         <div class="svc-dist">${s.distance_km} km</div>`;
@@ -1901,9 +1914,14 @@ function plotMarker(s) {
         ? '<span style="color:#5a8a6a;">Call 108</span>'
         : '<span style="color:#9c9389;">Number not listed</span>');
 
+  // Universal Google Maps URL — opens the native Maps app on mobile
+  // (Android/iOS), Google Maps web in a new tab on desktop.
+  const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}`;
+  const navLink = `<a href="${navUrl}" target="_blank" rel="noopener noreferrer" style="color:#3b7fc4;font-weight:600;text-decoration:none;">🧭 Navigate</a>`;
+
   const m = L.marker([s.lat, s.lng], { icon })
     .addTo(map)
-    .bindPopup(`<b>${s.name}</b><br>${phoneLink}<br><small>${s.distance_km} km away</small>`);
+    .bindPopup(`<b>${s.name}</b><br>${phoneLink} · ${navLink}<br><small>${s.distance_km} km away</small>`);
   mapMarkers.push(m);
 }
 
