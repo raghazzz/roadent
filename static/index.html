@@ -70,6 +70,15 @@
       display: flex;
       align-items: center;
       gap: 10px;
+      min-width: 0;
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      flex-shrink: 0;
     }
 
     .logo-mark {
@@ -783,6 +792,75 @@
       color: var(--text) !important;
       border-color: var(--border) !important;
     }
+
+    /* ── Mobile (<768px) — map dropped entirely, chat is the whole
+       screen with SOS/breakdown up top, bigger touch targets ── */
+    @media (max-width: 768px) {
+      #topbar {
+        padding: 0 12px;
+      }
+
+      /* Drop the subtitle and voice-toggle label so the status chip has
+         room to show without pushing the layout wider than the viewport. */
+      .logo-sub { display: none; }
+      .topbar-actions { gap: 6px; }
+      #tts-toggle #tts-label { display: none; }
+      #tts-toggle { padding: 7px; }
+
+      .status-chip {
+        min-width: 0;
+        max-width: 40vw;
+        overflow: hidden;
+      }
+      .status-chip span#status-label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      #main {
+        flex-direction: column;
+      }
+
+      /* No map on mobile — the on-screen space is worth more spent on
+         chat + the two action buttons than a map view users didn't want. */
+      #map-panel {
+        display: none;
+      }
+
+      #chat-panel {
+        width: 100%;
+        flex: 1;
+        min-height: 0;
+        border-left: none;
+      }
+
+      /* 48px+ touch targets on the primary emergency actions */
+      #sos-btn, #breakdown-btn {
+        min-height: 48px;
+      }
+
+      #send-btn, #mic-btn {
+        width: 48px;
+        height: 48px;
+      }
+
+      /* 16px minimum — anything smaller makes iOS Safari auto-zoom on focus */
+      #chat-input {
+        font-size: 16px;
+      }
+
+      /* Wrap suggestion chips instead of horizontal-scrolling a single row */
+      #suggestion-chips {
+        flex-wrap: wrap;
+        overflow-x: visible;
+      }
+
+      .suggestion-chip {
+        white-space: normal;
+      }
+    }
   </style>
 </head>
 <body>
@@ -796,7 +874,7 @@
       <span class="logo-sub"> · Road Safety Assistant</span>
     </div>
   </div>
-  <div style="display:flex;align-items:center;gap:10px;">
+  <div class="topbar-actions">
     <div id="tts-toggle" onclick="toggleTTS()" title="Toggle voice readout">
       <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
       <span id="tts-label">Voice off</span>
@@ -1311,6 +1389,14 @@ async function doChat(text) {
 /* ═══════════════════════════════════════════
    WHATSAPP SHARE
    ═══════════════════════════════════════════ */
+// wa.me hands off to the WhatsApp app via the OS's own URL-scheme handling,
+// which is what you want on a phone; on desktop there's usually no app to
+// hand off to, so wa.me just bounces through a redirect page — going
+// straight to web.whatsapp.com skips that hop.
+function isMobileDevice() {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+}
+
 function buildWhatsAppShareUrl(services, mode) {
   const mapsLink = `https://www.google.com/maps?q=${userLat},${userLng}`;
   let message;
@@ -1327,7 +1413,10 @@ function buildWhatsAppShareUrl(services, mode) {
     message = `EMERGENCY: I need help. My location: ${mapsLink}. Nearest hospital: ${name}, ${phone}. Sent via Roadent.`;
   }
 
-  return `https://wa.me/?text=${encodeURIComponent(message)}`;
+  const encoded = encodeURIComponent(message);
+  return isMobileDevice()
+    ? `https://wa.me/?text=${encoded}`
+    : `https://web.whatsapp.com/send?text=${encoded}`;
 }
 
 /* ═══════════════════════════════════════════
@@ -1724,6 +1813,14 @@ if (window.speechSynthesis) {
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition  = null;
 let isListening  = false;
+
+// Firefox (desktop and mobile) has no SpeechRecognition implementation —
+// hide the mic button entirely rather than leaving a dead button that
+// only explains itself after being tapped.
+if (!SpeechRecognition) {
+  const mb = document.getElementById('mic-btn');
+  if (mb) mb.style.display = 'none';
+}
 
 function initRecognition() {
   if (!SpeechRecognition) return null;
