@@ -3,13 +3,15 @@ Roadent API — Day 2 complete
 Run: uvicorn api:app --reload --port 8000
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Header
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional
-import sqlite3, os, json, re, requests
+import sqlite3, os, json, re, requests, time, traceback
+from collections import defaultdict, deque
 from math import radians, sin, cos, sqrt, atan2
 
 # ── Config ─────────────────────────────────────────────
@@ -22,6 +24,9 @@ MISTRAL_MODEL   = "mistral-small-latest"
 MISTRAL_TIMEOUT = 8          # seconds — tight for emergency context
 MAX_RADIUS_KM   = 50         # local DB search radius
 OVERPASS_URL    = "https://overpass-api.de/api/interpreter"
+ADMIN_TOKEN     = os.environ.get("ADMIN_TOKEN", "")   # required to call POST /api/services
+RATE_LIMIT      = 30         # requests
+RATE_WINDOW_SEC = 60         # per this many seconds, per client IP
 
 # ── App ─────────────────────────────────────────────────
 app = FastAPI(title="Roadent API", version="2.0")
@@ -51,6 +56,74 @@ app.add_middleware(
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
 
+
+# ═══════════════════════════════════════════════════════
+#  HARDENING — rate limiting + exception handling
+# ═══════════════════════════════════════════════════════
+
+# In-memory sliding-window log, per client IP. Single-process deployment
+# (Render runs one uvicorn worker here), so a plain dict is safe — no
+# cross-worker sharing needed. Resets on restart, which is fine for this
+# app's threat model (basic abuse/scraping protection, not a hard SLA).
+_rate_buckets: dict[str, deque] = defaultdict(deque)
+
+def _client_ip(request: Request) -> str:
+    """Prefer the original client IP from Render's proxy, else the socket peer."""
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    if request.url.path.startswith("/api/"):
+        ip = _client_ip(request)
+        now = time.time()
+        bucket = _rate_buckets[ip]
+        while bucket and now - bucket[0] > RATE_WINDOW_SEC:
+            bucket.popleft()
+        if len(bucket) >= RATE_LIMIT:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "rate_limited",
+                    "message": "You're sending requests a little too fast — please wait a moment and try again.",
+                },
+            )
+        bucket.append(now)
+    return await call_next(request)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Malformed JSON bodies and failed field validation both land here —
+    always a clean 400, never FastAPI's default verbose 422."""
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": "invalid_request",
+            "message": "Your request couldn't be processed — please check the data you sent and try again.",
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch-all so an unexpected bug in any endpoint degrades to a clean
+    500 instead of leaking a raw stack trace to the client. This only fires
+    for exceptions with no more specific handler (HTTPException and
+    RequestValidationError are handled above/by FastAPI's defaults first)."""
+    print(f"[UNHANDLED] {request.method} {request.url.path}: {exc!r}")
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "internal_error",
+            "message": "Something went wrong on our end. Please try again in a moment.",
+        },
+    )
+
+
 # Serve the frontend
 from fastapi.responses import FileResponse
 
@@ -73,6 +146,16 @@ if os.path.isdir(os.path.join(BASE_DIR, "static")):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
+# ── Input sanitization ───────────────────────────────────
+_HTML_TAG_RE = re.compile(r'<[^>]*>')
+
+def strip_html(text: str) -> str:
+    """Strip HTML tags from free-text user input before it reaches Mistral
+    or gets echoed back — a lightweight defense, not a full sanitizer, but
+    enough to stop tags/scripts riding along in the prompt or UI."""
+    return _HTML_TAG_RE.sub('', text)
+
+
 # ── Models ──────────────────────────────────────────────
 class ChatRequest(BaseModel):
     message: str
@@ -80,6 +163,19 @@ class ChatRequest(BaseModel):
     lng: Optional[float] = None
     history: list[dict] = []       # conversation history for multi-turn
     offline: bool = False
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("message cannot be empty")
+        if len(v) > 1000:
+            raise ValueError("message must be 1000 characters or fewer")
+        cleaned = strip_html(v).strip()
+        if not cleaned:
+            raise ValueError("message cannot be empty")
+        return cleaned
 
 class EmergencyRequest(BaseModel):
     lat: float
@@ -783,8 +879,16 @@ def nearby(lat: float, lng: float, radius_km: float = 30):
 
 
 @app.post("/api/services")
-def add_service(req: AddServiceRequest):
-    """Add a new service to the local DB (judges can test this too)."""
+def add_service(req: AddServiceRequest, x_admin_token: Optional[str] = Header(default=None)):
+    """
+    Add a new service to the local DB. Admin-only: requires the ADMIN_TOKEN
+    env var to be set and matched via the X-Admin-Token header — without
+    this, anyone could inject fake hospitals/services into the live DB.
+    If ADMIN_TOKEN isn't set on the server, this endpoint is disabled outright.
+    """
+    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(403, "Admin token required")
+
     valid = {"hospital","police","ambulance","towing","puncture_shop","showroom","petrol_pump","mechanic"}
     if req.type not in valid:
         raise HTTPException(400, f"type must be one of: {', '.join(valid)}")
