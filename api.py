@@ -522,7 +522,10 @@ def call_mistral(user_message: str, history: list[dict],
         "known — only ask them to enable location or share their city/area if the "
         "context explicitly says location is unavailable.\n"
         "- Never make up phone numbers. If unknown, say 'call 108'.\n"
-        "- Keep every response under 150 words.\n\n"
+        "- Keep every response under 150 words.\n"
+        "- Formatting: the chat UI only supports **bold** text and simple numbered "
+        "(1. 2. 3.) or dash (-) lists — one level, no nesting. Do not use headers, "
+        "tables, block quotes, or nested lists; they will not render.\n\n"
         f"Services near the user right now:\n{services_context}"
     )
 

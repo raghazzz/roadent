@@ -1448,7 +1448,7 @@ async function triggerSOS() {
       const isOffline = !navigator.onLine;
       if (isOffline) showOffline();
       if (cData.reply) {
-        addBot(cData.reply.replace(/\n/g, '<br>'), isOffline);
+        addBot(renderMarkdown(cData.reply), isOffline);
         chatHistory.push({ role: 'assistant', content: cData.reply });
       }
     }
@@ -1625,7 +1625,7 @@ async function doChat(text) {
 
     // Always show the AI reply text as well (may be a follow-up answer)
     if (data.reply) {
-      addBot(data.reply.replace(/\n/g, '<br>'), isOffline);
+      addBot(renderMarkdown(data.reply), isOffline);
     } else if (!data.services?.length) {
       addFallback();
     }
@@ -1921,12 +1921,48 @@ function fitMarkers() {
 }
 
 /* ═══════════════════════════════════════════
-   MESSAGE HELPERS
+   MARKDOWN RENDERING (bot messages only)
+   Mistral replies go into innerHTML, so raw text is escaped for HTML
+   FIRST — before any markdown conversion — so a reply that happens to
+   contain "<" or "&" (or a deliberate injection attempt) can't break out
+   into real markup. Only a small, deliberate subset of markdown is
+   supported, matching what the system prompt is told to stick to.
    ═══════════════════════════════════════════ */
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function renderMarkdown(raw) {
+  if (!raw) return '';
+
+  // 1. Escape HTML first — everything below operates on already-safe text.
+  const escaped = escapeHtml(raw);
+
+  // 2. **bold** -> <strong>bold</strong>
+  const bold = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+  // 3. Numbered lines ("1. …") and dash bullets ("- …") get their own
+  // line via <br> joins below; dash bullets get a proper bullet glyph.
+  // Kept deliberately simple — <br>-based spacing, not real <ol>/<ul>.
+  const lines = bold.split('\n').map(line => {
+    const m = line.match(/^(\s*)-\s+(.*)$/);
+    return m ? `${m[1]}• ${m[2]}` : line;
+  });
+
+  // 4. Remaining line breaks -> <br>
+  return lines.join('<br>');
+}
+
 function addUser(text) {
   const w = document.createElement('div');
   w.className = 'msg-wrap user';
-  w.innerHTML = `<div class="msg-sender">You</div><div class="bubble user">${text}</div>`;
+  // Escaped (not markdown-rendered) — this is the user's own literal text,
+  // but it still goes into innerHTML so it needs the same HTML-escaping
+  // treatment to avoid a self-XSS if someone types "<img onerror=...>".
+  w.innerHTML = `<div class="msg-sender">You</div><div class="bubble user">${escapeHtml(text)}</div>`;
   document.getElementById('chat-box').appendChild(w);
   scrollBottom();
 }
@@ -2225,7 +2261,11 @@ setInputEnabled = function(on) {
 const _origAddBot = addBot;
 addBot = function(html, isWarn = false) {
   const el = _origAddBot(html, isWarn);
-  speak(html);   // speak() strips HTML tags internally
+  // Read from the rendered bubble's textContent rather than the raw HTML
+  // string — it's already tag-free AND has entities like &amp; correctly
+  // decoded back to plain characters, which a regex tag-strip wouldn't do.
+  const bubble = el.querySelector('.bubble');
+  speak(bubble ? bubble.textContent : html);
   return el;
 };
 
