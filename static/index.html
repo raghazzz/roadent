@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Roadent — AI Road Emergency Assistant</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icon.svg">
+  <meta name="theme-color" content="#d95f3b">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -244,6 +248,46 @@
       font-style: italic;
     }
 
+    /* Vehicle Breakdown button — amber, secondary to the red SOS button */
+    #breakdown-btn {
+      width: 100%;
+      padding: 12px 20px;
+      margin-top: 8px;
+      background: var(--amber-bg);
+      border: 1px solid rgba(176,125,42,0.35);
+      border-radius: var(--radius);
+      color: var(--amber);
+      font-family: var(--display);
+      font-size: 15px;
+      font-weight: 400;
+      letter-spacing: -0.01em;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
+    }
+
+    #breakdown-btn .breakdown-icon { font-size: 18px; line-height: 1; }
+
+    #breakdown-btn:not(:disabled):hover {
+      background: #fbe9c8;
+      box-shadow: 0 4px 16px rgba(176,125,42,0.25);
+      transform: translateY(-1px);
+    }
+
+    #breakdown-btn:not(:disabled):active { transform: translateY(0); }
+
+    #breakdown-btn:disabled {
+      background: var(--stone);
+      color: var(--text-faint);
+      border-color: var(--border);
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
     /* offline notice */
     #offline-notice {
       display: none;
@@ -327,6 +371,14 @@
     .bubble.warn {
       background: var(--amber-bg);
       border: 1px solid rgba(176,125,42,0.18);
+    }
+
+    /* Vehicle Breakdown result cards — amber accent, distinguished from the
+       offline .warn bubble by a left border stripe */
+    .bubble.breakdown {
+      background: var(--amber-bg);
+      border: 1px solid rgba(176,125,42,0.18);
+      border-left: 3px solid var(--amber);
     }
 
     /* Service card inside bubble */
@@ -441,6 +493,11 @@
       color: var(--sky);
       border: 1px solid rgba(59,127,196,0.2);
     }
+    .source-badge.breakdown {
+      background: var(--amber-bg);
+      color: var(--amber);
+      border: 1px solid rgba(176,125,42,0.2);
+    }
 
     /* Report button */
     .report-btn {
@@ -471,6 +528,33 @@
       border-color: rgba(90,138,106,0.3);
       color: var(--sage);
     }
+
+    /* WhatsApp share button */
+    .whatsapp-btn {
+      width: 100%;
+      margin-top: 8px;
+      padding: 9px 14px;
+      background: #25D366;
+      border: 1px solid #1ebd5a;
+      border-radius: var(--radius-sm);
+      color: #fff;
+      font-family: var(--body);
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      text-decoration: none;
+      transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+    }
+    .whatsapp-btn:hover {
+      background: #20bd5a;
+      box-shadow: 0 4px 14px rgba(37,211,102,0.35);
+      transform: translateY(-1px);
+    }
+    .whatsapp-btn:active { transform: translateY(0); }
 
     /* Typing indicator */
     .typing-row { display: flex; gap: 5px; align-items: center; padding: 4px 2px; }
@@ -516,6 +600,39 @@
       font-size: 15px;
       color: var(--coral);
       margin-bottom: 1px;
+    }
+
+    /* suggested question chips */
+    #suggestion-chips {
+      display: flex;
+      gap: 6px;
+      padding: 10px 14px 0;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    #suggestion-chips::-webkit-scrollbar { display: none; }
+
+    .suggestion-chip {
+      flex-shrink: 0;
+      background: var(--cream2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 7px 13px;
+      font-size: 12px;
+      font-family: var(--body);
+      color: var(--text-mid);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .suggestion-chip:hover:not(:disabled) {
+      background: var(--coral-bg);
+      border-color: var(--coral-soft);
+      color: var(--coral);
+    }
+    .suggestion-chip:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
 
     /* input row */
@@ -709,6 +826,10 @@
         <span class="sos-icon">🆘</span>
         I need help right now
       </button>
+      <button id="breakdown-btn" disabled onclick="triggerBreakdown()">
+        <span class="breakdown-icon">🔧</span>
+        Vehicle Breakdown
+      </button>
       <div class="sos-hint" id="sos-hint">Finding your location…</div>
       <div id="offline-notice">
         ⚡ Offline — showing saved local data
@@ -723,6 +844,12 @@
         <div class="hotline"><strong>100</strong>Police</div>
         <div class="hotline"><strong>101</strong>Fire</div>
         <div class="hotline"><strong>1073</strong>Road Accident</div>
+      </div>
+      <div id="suggestion-chips">
+        <button class="suggestion-chip" disabled onclick="sendSuggested('What to do after a minor accident?')">What to do after a minor accident?</button>
+        <button class="suggestion-chip" disabled onclick="sendSuggested('How do I file an FIR?')">How do I file an FIR?</button>
+        <button class="suggestion-chip" disabled onclick="sendSuggested('Basic first aid steps')">Basic first aid steps</button>
+        <button class="suggestion-chip" disabled onclick="sendSuggested('My car broke down')">My car broke down</button>
       </div>
       <div id="input-row">
         <input type="text" id="chat-input" placeholder="What happened? Type here…" disabled>
@@ -759,11 +886,68 @@ let mapMarkers = [];
 let chatHistory = [];    // renamed from 'history' (shadows window.history)
 let busy       = false;
 
-// Offline cache — stores last successful service results in memory
-// so if the user goes offline mid-session, we still show something useful
-let lastKnownServices = [];
-let lastKnownLat      = null;
-let lastKnownLng      = null;
+/* ═══════════════════════════════════════════
+   NETWORK RESILIENCE
+   ═══════════════════════════════════════════ */
+const FETCH_TIMEOUT_MS = 6000;
+
+// Raw building block: fetch() that aborts itself after `timeoutMs`, so a
+// hung request never leaves the UI waiting forever.
+async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Every fetch in the app goes through this: 6s timeout, one retry on
+// failure (timeout or network error). Visible user-facing calls (SOS,
+// breakdown, chat, report) show a transient "taking longer" notice during
+// the retry; pass `{ silent: true }` (used by the background health ping)
+// to skip that and stay quiet. If the retry also fails, this rethrows so
+// the caller's own catch block runs its existing offline-fallback logic
+// (cached services, addFallback(), showOffline(), etc.) — this function
+// only owns the timeout/retry, not what happens after both attempts fail.
+async function resilientFetch(url, options = {}, { silent = false } = {}) {
+  try {
+    return await fetchWithTimeout(url, options);
+  } catch (err) {
+    console.warn('[resilientFetch] first attempt failed, retrying:', err);
+    const notice = silent ? null : addBot('⏳ Taking longer than usual — retrying...', true);
+    try {
+      const res = await fetchWithTimeout(url, options);
+      if (notice) notice.remove();
+      return res;
+    } catch (err2) {
+      if (notice) notice.remove();
+      throw err2;
+    }
+  }
+}
+
+// Offline cache — persisted to localStorage so last-known services survive a
+// reload or a fresh (offline) page load, not just an in-memory session.
+let lastKnownServices = JSON.parse(localStorage.getItem('roadent_last_services') || '[]');
+let lastKnownLat      = parseFloat(localStorage.getItem('roadent_last_lat'));
+let lastKnownLng      = parseFloat(localStorage.getItem('roadent_last_lng'));
+if (Number.isNaN(lastKnownLat)) lastKnownLat = null;
+if (Number.isNaN(lastKnownLng)) lastKnownLng = null;
+
+function cacheLastKnown(services, lat, lng) {
+  lastKnownServices = services;
+  lastKnownLat = lat;
+  lastKnownLng = lng;
+  try {
+    localStorage.setItem('roadent_last_services', JSON.stringify(services));
+    localStorage.setItem('roadent_last_lat', String(lat));
+    localStorage.setItem('roadent_last_lng', String(lng));
+  } catch (err) {
+    console.warn('[offline cache] localStorage write failed:', err);
+  }
+}
 
 const TYPE_META = {
   hospital:      { emoji: '🏥', label: 'Hospitals',       color: '#d95f3b' },
@@ -771,6 +955,8 @@ const TYPE_META = {
   police:        { emoji: '👮', label: 'Police Stations', color: '#3b7fc4' },
   towing:        { emoji: '🏗️', label: 'Towing Services', color: '#b07d2a' },
   puncture_shop: { emoji: '🔧', label: 'Repair Shops',    color: '#7c6e9e' },
+  petrol_pump:   { emoji: '⛽', label: 'Petrol Pumps',    color: '#b07d2a' },
+  mechanic:      { emoji: '🔧', label: 'Mechanics',       color: '#b07d2a' },
 };
 
 /* ═══════════════════════════════════════════
@@ -790,7 +976,11 @@ function startGeolocation() {
   addBot("Finding your location — please allow access when prompted. I'll connect you to nearby help the moment I know where you are.");
 
   if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(onGotLocation, onLocationError);
+    navigator.geolocation.getCurrentPosition(onGotLocation, onLocationError, {
+      enableHighAccuracy: true,
+      timeout: 8000,
+      maximumAge: 60000,
+    });
   } else {
     onLocationError();
   }
@@ -802,9 +992,26 @@ function onGotLocation(pos) {
   onLocationReady();
 }
 
-function onLocationError() {
+// error is a GeolocationPositionError when the browser API itself fails
+// (permission denied / no fix / timed out); undefined when the browser
+// has no geolocation API at all.
+function onLocationError(error) {
   setStatus(null, 'Location unavailable');
-  addBot("I couldn't get your GPS location automatically. You can still type your city or area and I'll do my best to help.");
+  let message;
+  switch (error && error.code) {
+    case 1: // PERMISSION_DENIED
+      message = "Location access was denied. You can still type your city or area below and I'll look up nearby help.";
+      break;
+    case 2: // POSITION_UNAVAILABLE
+      message = "Your device couldn't get a GPS fix right now. You can still type your city or area below.";
+      break;
+    case 3: // TIMEOUT
+      message = "Finding your GPS location took too long. You can still type your city or area below.";
+      break;
+    default:
+      message = "I couldn't get your GPS location automatically. You can still type your city or area and I'll do my best to help.";
+  }
+  addBot(message);
   enableInput();
 }
 
@@ -834,6 +1041,7 @@ function onLocationReady() {
   setStatus('online', 'Location found');
   document.getElementById('sos-hint').textContent = 'Tap above for immediate emergency help';
   document.getElementById('sos-btn').disabled = false;
+  document.getElementById('breakdown-btn').disabled = false;
   enableInput();
 
   document.getElementById('chat-box').innerHTML = '';
@@ -860,7 +1068,7 @@ async function triggerSOS() {
 
   try {
     // ── Step 1: fast raw lookup (no LLM, < 300ms) ──
-    const eRes = await fetch(`${API}/api/emergency`, {
+    const eRes = await resilientFetch(`${API}/api/emergency`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ lat: userLat, lng: userLng }),
@@ -873,10 +1081,8 @@ async function triggerSOS() {
 
     const services = eData.services || [];
     if (services.length > 0) {
-      // Cache services in memory for offline fallback
-      lastKnownServices = services;
-      lastKnownLat = userLat;
-      lastKnownLng = userLng;
+      // Cache services for offline fallback (persists across reloads)
+      cacheLastKnown(services, userLat, userLng);
       clearMarkers();
       services.forEach(plotMarker);
       fitMarkers();
@@ -890,7 +1096,7 @@ async function triggerSOS() {
     const sosMessage = 'I was in a road accident and pressed the SOS button. Summarise what help is nearest and what I should do right now.';
     chatHistory.push({ role: 'user', content: sosMessage });
 
-    const cRes = await fetch(`${API}/api/chat`, {
+    const cRes = await resilientFetch(`${API}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -904,9 +1110,12 @@ async function triggerSOS() {
 
     if (cRes.ok) {
       const cData = await cRes.json();
-      if (cData.offline) showOffline();
+      // A successful HTTP response while the browser reports online must never
+      // flip offline UI — trust navigator.onLine, not any flag in the body.
+      const isOffline = !navigator.onLine;
+      if (isOffline) showOffline();
       if (cData.reply) {
-        addBot(cData.reply.replace(/\n/g, '<br>'), cData.offline);
+        addBot(cData.reply.replace(/\n/g, '<br>'), isOffline);
         chatHistory.push({ role: 'assistant', content: cData.reply });
       }
     }
@@ -932,6 +1141,55 @@ async function triggerSOS() {
 }
 
 /* ═══════════════════════════════════════════
+   VEHICLE BREAKDOWN BUTTON  →  /api/emergency (mode=breakdown)
+   ═══════════════════════════════════════════ */
+async function triggerBreakdown() {
+  if (busy) return;
+  if (!userLat) {
+    addBot("I still don't have your location. Please allow GPS access or type your city below.");
+    return;
+  }
+
+  addUser('🔧 My vehicle broke down — I need a mechanic, fuel, or a tow');
+  busy = true;
+  setInputEnabled(false);
+
+  const typing = addTyping();
+
+  try {
+    const res = await resilientFetch(`${API}/api/emergency`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat: userLat, lng: userLng, mode: 'breakdown' }),
+    });
+
+    typing.remove();
+    if (!res.ok) throw new Error(`breakdown ${res.status}`);
+    const data = await res.json();
+
+    const services = data.services || [];
+    if (services.length > 0) {
+      clearMarkers();
+      services.forEach(plotMarker);
+      fitMarkers();
+      renderServices(services, false, false, 'breakdown');
+    } else {
+      addBot('⚡ No petrol pumps, mechanics, or repair shops found nearby in the local database. Try the highway helpline: '
+        + '<a href="tel:1073" style="color:var(--amber);font-weight:700;">1073</a>.');
+    }
+
+  } catch (err) {
+    typing.remove();
+    console.error('[Breakdown]', err);
+    addBot('⚠️ Can\'t reach the server right now. For roadside help, try the highway helpline: '
+      + '<a href="tel:1073" style="color:var(--amber);font-weight:700;">1073</a>.', true);
+  }
+
+  busy = false;
+  setInputEnabled(true);
+}
+
+/* ═══════════════════════════════════════════
    CHAT SEND  →  /api/chat
    ═══════════════════════════════════════════ */
 async function sendMessage() {
@@ -940,7 +1198,50 @@ async function sendMessage() {
   if (!txt || busy) return;
   inp.value = '';
   addUser(txt);
+
+  // No GPS yet — the location-unavailable messages ask the user to type
+  // their city/area instead, so give typed text a shot at being a place
+  // name before treating it as a normal chat question.
+  if (!userLat && await tryResolveLocationFromText(txt)) return;
+
   await doChat(txt);
+}
+
+// Attempts to forward-geocode free-typed text into coordinates. Returns
+// true if it resolved to a location (and the location is now live), false
+// if it didn't look like a place — caller should fall back to normal chat.
+async function tryResolveLocationFromText(text) {
+  busy = true;
+  setInputEnabled(false);
+  const typing = addTyping();
+  try {
+    const res = await resilientFetch(`${API}/api/geocode?query=${encodeURIComponent(text)}`, {}, { silent: true });
+    typing.remove();
+    if (res.ok) {
+      const data = await res.json();
+      if (data.lat != null && data.lng != null) {
+        userLat = data.lat;
+        userLng = data.lng;
+        onLocationReady();
+        addBot(`📍 Using <strong>${data.display_name || text}</strong> as your location.`);
+        busy = false;
+        setInputEnabled(true);
+        return true;
+      }
+    }
+  } catch (err) {
+    typing.remove();
+    console.warn('[geocode] lookup failed, falling back to chat:', err);
+  }
+  busy = false;
+  setInputEnabled(true);
+  return false;
+}
+
+async function sendSuggested(text) {
+  if (busy) return;
+  addUser(text);
+  await doChat(text);
 }
 
 async function doChat(text) {
@@ -950,7 +1251,7 @@ async function doChat(text) {
   const typing = addTyping();
 
   try {
-    const res = await fetch(`${API}/api/chat`, {
+    const res = await resilientFetch(`${API}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -966,23 +1267,24 @@ async function doChat(text) {
     if (!res.ok) throw new Error(`chat ${res.status}`);
     const data = await res.json();
 
-    if (data.offline) showOffline();
+    // A successful HTTP response while the browser reports online must never
+    // flip offline UI — trust navigator.onLine, not any flag in the body.
+    const isOffline = !navigator.onLine;
+    if (isOffline) showOffline();
 
     // If the reply came with service data, show cards + AI text
     if (data.services && data.services.length > 0) {
-      // Cache for offline fallback
-      lastKnownServices = data.services;
-      lastKnownLat = userLat;
-      lastKnownLng = userLng;
+      // Cache for offline fallback (persists across reloads)
+      cacheLastKnown(data.services, userLat, userLng);
       clearMarkers();
       data.services.forEach(plotMarker);
       fitMarkers();
-      renderServices(data.services, data.offline);
+      renderServices(data.services, isOffline);
     }
 
     // Always show the AI reply text as well (may be a follow-up answer)
     if (data.reply) {
-      addBot(data.reply.replace(/\n/g, '<br>'), data.offline);
+      addBot(data.reply.replace(/\n/g, '<br>'), isOffline);
     } else if (!data.services?.length) {
       addFallback();
     }
@@ -1007,22 +1309,57 @@ async function doChat(text) {
 }
 
 /* ═══════════════════════════════════════════
+   WHATSAPP SHARE
+   ═══════════════════════════════════════════ */
+function buildWhatsAppShareUrl(services, mode) {
+  const mapsLink = `https://www.google.com/maps?q=${userLat},${userLng}`;
+  let message;
+
+  if (mode === 'breakdown') {
+    const nearest = services[0];
+    const phone = (nearest && nearest.phone && nearest.phone !== 'N/A') ? nearest.phone : '1073';
+    const name = nearest ? nearest.name : 'nearest help';
+    message = `BREAKDOWN: My vehicle broke down and I need help. My location: ${mapsLink}. Nearest help: ${name}, ${phone}. Sent via Roadent.`;
+  } else {
+    const hospital = services.find(s => s.type === 'hospital') || services[0];
+    const phone = (hospital && hospital.phone && hospital.phone !== 'N/A') ? hospital.phone : '108';
+    const name = hospital ? hospital.name : 'nearest hospital';
+    message = `EMERGENCY: I need help. My location: ${mapsLink}. Nearest hospital: ${name}, ${phone}. Sent via Roadent.`;
+  }
+
+  return `https://wa.me/?text=${encodeURIComponent(message)}`;
+}
+
+/* ═══════════════════════════════════════════
    RENDER SERVICE CARDS
    ═══════════════════════════════════════════ */
-function renderServices(services, isOffline, showReportBtn = false) {
+let lastServiceCardEl = null;   // the currently-shown service-card bubble, if any
+
+function renderServices(services, isOffline, showReportBtn = false, mode = 'emergency') {
+  // Remove the previously rendered service-card bubble first — each render
+  // replaces the last one instead of stacking on top of it.
+  if (lastServiceCardEl) {
+    lastServiceCardEl.remove();
+    lastServiceCardEl = null;
+  }
+
   // Group by type
   const grouped = {};
   services.forEach(s => {
     (grouped[s.type] = grouped[s.type] || []).push(s);
   });
 
-  const order = ['hospital', 'ambulance', 'police', 'towing', 'puncture_shop'];
+  const isBreakdown = mode === 'breakdown';
+  const order = isBreakdown
+    ? ['petrol_pump', 'mechanic', 'towing', 'puncture_shop']
+    : ['hospital', 'ambulance', 'police', 'towing', 'puncture_shop'];
 
   // Detect if any results came from OSM
   const hasOSM   = services.some(s => s.source === 'openstreetmap');
   const hasLocal = services.some(s => s.source !== 'openstreetmap');
   let sourceLabel, sourceClass;
-  if (hasOSM && hasLocal) { sourceLabel = '🌐 Local DB + OpenStreetMap'; sourceClass = 'osm'; }
+  if (isBreakdown)        { sourceLabel = '🔧 Vehicle Breakdown — Local Database'; sourceClass = 'breakdown'; }
+  else if (hasOSM && hasLocal) { sourceLabel = '🌐 Local DB + OpenStreetMap'; sourceClass = 'osm'; }
   else if (hasOSM)        { sourceLabel = '🌐 OpenStreetMap (global)';   sourceClass = 'osm'; }
   else                    { sourceLabel = '🗃️ Local Database';            sourceClass = 'local'; }
 
@@ -1035,7 +1372,7 @@ function renderServices(services, isOffline, showReportBtn = false) {
   wrap.appendChild(senderLabel);
 
   const bubble = document.createElement('div');
-  bubble.className = isOffline ? 'bubble bot warn' : 'bubble bot';
+  bubble.className = isBreakdown ? 'bubble bot breakdown' : (isOffline ? 'bubble bot warn' : 'bubble bot');
 
   // Source badge
   const badge = document.createElement('div');
@@ -1046,9 +1383,11 @@ function renderServices(services, isOffline, showReportBtn = false) {
   // Intro text
   const intro = document.createElement('div');
   intro.style.cssText = 'font-size:14px;margin-bottom:12px;line-height:1.5;';
-  intro.innerHTML = isOffline
-    ? '⚡ Offline — showing your nearest services from the local database:'
-    : "Here\'s what\'s nearest to you. Call the first number immediately if you need an ambulance.";
+  intro.innerHTML = isBreakdown
+    ? "Here\'s what\'s nearest to fix your vehicle — petrol pumps, mechanics, towing, and repair shops:"
+    : (isOffline
+        ? '⚡ Offline — showing your nearest services from the local database:'
+        : "Here\'s what\'s nearest to you. Call the first number immediately if you need an ambulance.");
   bubble.appendChild(intro);
 
   // Service sections
@@ -1068,9 +1407,15 @@ function renderServices(services, isOffline, showReportBtn = false) {
       const card = document.createElement('div');
       card.className = 'svc-card';
 
+      // "Call 108" is only a sane fallback for medical-emergency types — showing
+      // the ambulance number on a petrol pump or mechanic card with no listed
+      // phone would be actively misleading.
+      const EMERGENCY_PHONE_FALLBACK_TYPES = ['hospital', 'ambulance', 'police'];
       const phoneDisplay = (s.phone && s.phone !== 'N/A')
         ? `📞 <a href="tel:${s.phone}" style="color:inherit;text-decoration:none;">${s.phone}</a>`
-        : 'Call <a href="tel:108" style="color:inherit;text-decoration:none;">108</a>';
+        : (EMERGENCY_PHONE_FALLBACK_TYPES.includes(s.type)
+            ? 'Call <a href="tel:108" style="color:inherit;text-decoration:none;">108</a>'
+            : '<span style="color:var(--text-faint);">Number not listed</span>');
 
       const addrLine = s.address && s.address !== 'N/A'
         ? `<div class="svc-addr">${s.address}${s.city ? ', ' + s.city : ''}</div>`
@@ -1111,8 +1456,20 @@ function renderServices(services, isOffline, showReportBtn = false) {
     bubble.appendChild(reportBtn);
   }
 
+  // WhatsApp share — shown below any SOS or breakdown result with services
+  if (services.length > 0 && userLat != null && userLng != null) {
+    const waBtn = document.createElement('a');
+    waBtn.className = 'whatsapp-btn';
+    waBtn.target = '_blank';
+    waBtn.rel = 'noopener noreferrer';
+    waBtn.href = buildWhatsAppShareUrl(services, mode);
+    waBtn.innerHTML = '💬 Share my location with family';
+    bubble.appendChild(waBtn);
+  }
+
   wrap.appendChild(bubble);
   document.getElementById('chat-box').appendChild(wrap);
+  lastServiceCardEl = wrap;
   scrollBottom();
 }
 
@@ -1124,7 +1481,7 @@ async function generateReport(services, btn) {
   btn.disabled = true;
 
   try {
-    const res = await fetch(`${API}/api/report`, {
+    const res = await resilientFetch(`${API}/api/report`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1178,9 +1535,12 @@ function plotMarker(s) {
     popupAnchor: [0, -30],
   });
 
+  const EMERGENCY_PHONE_FALLBACK_TYPES = ['hospital', 'ambulance', 'police'];
   const phoneLink = (s.phone && s.phone !== 'N/A')
     ? `<a href="tel:${s.phone}" style="color:#5a8a6a;font-weight:600;">${s.phone}</a>`
-    : '<span style="color:#5a8a6a;">Call 108</span>';
+    : (EMERGENCY_PHONE_FALLBACK_TYPES.includes(s.type)
+        ? '<span style="color:#5a8a6a;">Call 108</span>'
+        : '<span style="color:#9c9389;">Number not listed</span>');
 
   const m = L.marker([s.lat, s.lng], { icon })
     .addTo(map)
@@ -1269,13 +1629,18 @@ function showOffline() {
 function enableInput() {
   document.getElementById('chat-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
+  document.querySelectorAll('.suggestion-chip').forEach(c => c.disabled = false);
 }
 
 function setInputEnabled(on) {
   document.getElementById('chat-input').disabled = !on;
   document.getElementById('send-btn').disabled = !on;
-  // Only re-enable SOS if we actually have a location
-  if (userLat) document.getElementById('sos-btn').disabled = !on;
+  document.querySelectorAll('.suggestion-chip').forEach(c => c.disabled = !on);
+  // Only re-enable SOS / Breakdown if we actually have a location
+  if (userLat) {
+    document.getElementById('sos-btn').disabled = !on;
+    document.getElementById('breakdown-btn').disabled = !on;
+  }
 }
 
 /* ═══════════════════════════════════════════
@@ -1476,6 +1841,40 @@ addBot = function(html, isWarn = false) {
   return el;
 };
 
+
+// ── Service worker — app shell + map tiles cached for offline load ──
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(err => console.warn('[SW] registration failed:', err));
+  });
+}
+
+// ── Connection health indicator — silent background ping every 60s ──
+// Only touches the status dot when reachability actually changes state, so
+// it never overwrites "Finding your location…" or interrupts anything the
+// user is actively doing.
+let lastHealthOk = true;
+
+async function pingHealth() {
+  let ok = false;
+  try {
+    const res = await resilientFetch(`${API}/health`, {}, { silent: true });
+    ok = res.ok;
+  } catch (err) {
+    ok = false;
+  }
+
+  if (ok === lastHealthOk) return;
+  lastHealthOk = ok;
+
+  if (ok) {
+    setStatus(userLat ? 'online' : null, userLat ? 'Back online' : 'Server reachable');
+  } else {
+    setStatus('offline', 'Server unreachable');
+  }
+}
+
+setInterval(pingHealth, 60000);
 
 // ── Kick off geolocation last, after every function is defined ──
 startGeolocation();

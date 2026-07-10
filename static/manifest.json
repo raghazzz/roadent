@@ -1,0 +1,15 @@
+{
+  "name": "Roadent — AI Road Emergency Assistant",
+  "short_name": "Roadent",
+  "description": "Instant AI-assisted access to nearby hospitals, ambulances, police and towing during a road emergency — works offline.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#faf8f4",
+  "theme_color": "#d95f3b",
+  "orientation": "any",
+  "icons": [
+    { "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

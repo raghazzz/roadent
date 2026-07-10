@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
-import sqlite3, os, json, requests
+import sqlite3, os, json, re, requests
 from math import radians, sin, cos, sqrt, atan2
 
 # ── Config ─────────────────────────────────────────────
@@ -62,6 +62,12 @@ def root():
         return FileResponse(index)
     return {"message": "Roadent API is running. Place index.html in static/ folder."}
 
+@app.get("/sw.js", include_in_schema=False)
+def service_worker():
+    """Serve the service worker from root so its scope covers the whole app, not just /static/."""
+    sw = os.path.join(BASE_DIR, "static", "sw.js")
+    return FileResponse(sw, media_type="application/javascript")
+
 # Serve static assets (CSS, JS etc)
 if os.path.isdir(os.path.join(BASE_DIR, "static")):
     app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -78,6 +84,7 @@ class ChatRequest(BaseModel):
 class EmergencyRequest(BaseModel):
     lat: float
     lng: float
+    mode: Optional[str] = "emergency"   # "emergency" (default) or "breakdown"
 
 class AddServiceRequest(BaseModel):
     name: str
@@ -227,6 +234,44 @@ def get_all_nearby(lat, lng) -> dict:
     return {"grouped": grouped, "flat": final_flat}
 
 
+def get_breakdown_nearby(lat, lng) -> dict:
+    """
+    Vehicle Breakdown search — petrol pumps, mechanics, towing, and puncture
+    shops from the local DB. Local-DB only for now (no live OSM fallback like
+    get_all_nearby() has for emergency mode) since the seeded regions already
+    cover Delhi NCR, Jaipur, Rohtak, Gurugram, and Chennai.
+    """
+    config = {
+        "petrol_pump":   5,
+        "mechanic":      3,
+        "towing":        2,
+        "puncture_shop": 3,
+    }
+    db_results = []
+    for stype, target in config.items():
+        svcs, _ = find_nearest_adaptive(lat, lng, stype, target=target)
+        close_svcs = [s for s in svcs if s["distance_km"] <= 15]
+        db_results.extend(close_svcs)
+
+    db_results.sort(key=lambda x: x["distance_km"])
+
+    grouped = {}
+    type_limits = {"petrol_pump": 5, "mechanic": 3, "towing": 2, "puncture_shop": 3}
+    type_counts = {}
+    final_flat = []
+
+    for s in db_results:
+        stype = s["type"]
+        limit = type_limits.get(stype, 3)
+        type_counts[stype] = type_counts.get(stype, 0) + 1
+        if type_counts[stype] <= limit:
+            grouped.setdefault(stype, []).append(s)
+            final_flat.append(s)
+
+    print(f"[BREAKDOWN] {len(final_flat)} final results")
+    return {"grouped": grouped, "flat": final_flat}
+
+
 # ── OSM Fallback (for locations outside seeded area) ────
 def osm_fallback(lat, lng, radius_m=10000) -> list[dict]:
     """
@@ -330,22 +375,38 @@ def _trim_history(history: list[dict], max_turns: int = 6) -> list[dict]:
 
 
 def call_mistral(user_message: str, history: list[dict],
-                 services_context: str, offline: bool) -> str:
+                 services_context: str, offline: bool, intent: str = "emergency") -> str:
     """
     Call Mistral with smart history trimming + service context.
     Falls back to a clean offline structured reply on any failure.
     """
     if offline or not MISTRAL_API_KEY:
-        return _offline_reply(services_context)
+        return _offline_reply(services_context, intent)
 
     system = (
-        "You are Roadent, a calm and clear emergency road-safety assistant. "
-        "You help accident victims and bystanders find help fast.\n\n"
+        "You are Roadent, a calm and clear road-safety and emergency assistant for India. "
+        "You help with active road accidents AND general road-safety questions — insurance "
+        "claims, FIR filing, first aid, and what to do after a minor accident.\n\n"
         "Rules:\n"
-        "- Always be brief and action-oriented. People are stressed.\n"
-        "- Lead with the single most critical service (hospital or ambulance first).\n"
-        "- Always include the phone number so the user can call immediately.\n"
-        "- For follow-up questions, answer from the services data provided.\n"
+        "- Always be brief and action-oriented. People may be stressed.\n"
+        "- If nearby services are listed below, lead with the single most critical one "
+        "(hospital or ambulance first) and always include its phone number.\n"
+        "- If no services are listed, this is a general question — answer directly from "
+        "your own knowledge without inventing nearby places.\n"
+        "- FIR filing: go to the nearest police station (or the state e-FIR portal if "
+        "available for minor/no-injury cases), note vehicle numbers and witnesses, and get "
+        "a copy of the FIR for insurance.\n"
+        "- Insurance claims: inform the insurer promptly (many require notice within "
+        "24-48 hours), photograph the damage, keep the FIR and any medical reports, and "
+        "don't admit fault in writing before the claim is assessed.\n"
+        "- First aid: check responsiveness and breathing, don't move a seriously injured "
+        "person unless there's immediate danger (fire, oncoming traffic), apply firm "
+        "pressure to control heavy bleeding, and call 108 for anything beyond minor "
+        "cuts/bruises.\n"
+        "- The context below always tells you whether the user's location is known. "
+        "Never say you can't track or access their location if the context says it's "
+        "known — only ask them to enable location or share their city/area if the "
+        "context explicitly says location is unavailable.\n"
         "- Never make up phone numbers. If unknown, say 'call 108'.\n"
         "- Keep every response under 150 words.\n\n"
         f"Services near the user right now:\n{services_context}"
@@ -378,14 +439,20 @@ def call_mistral(user_message: str, history: list[dict],
 
     except requests.exceptions.Timeout:
         print("[Mistral] timeout — using offline fallback")
-        return _offline_reply(services_context)
+        return _offline_reply(services_context, intent)
     except Exception as e:
         print(f"[Mistral] error: {e}")
-        return _offline_reply(services_context)
+        return _offline_reply(services_context, intent)
 
 
-def _offline_reply(context: str) -> str:
+def _offline_reply(context: str, intent: str = "emergency") -> str:
     """Direct structured reply from DB data — no internet needed."""
+    if intent == "general":
+        return (
+            "⚡ Offline mode — I can't reach the AI assistant right now, so I can't answer "
+            "general questions in detail. For anything urgent, call 108 (ambulance) or "
+            "100 (police)."
+        )
     lines = [l for l in context.split("\n") if l.strip() and not l.startswith("Nearby services")]
     body = "\n".join(lines[:20])
     return (
@@ -408,6 +475,115 @@ def format_context(services: list[dict]) -> str:
     return "\n".join(lines)
 
 
+# ── Intent detection ─────────────────────────────────────
+# Simple keyword match, checked in priority order: a specific-service mention
+# (emergency or breakdown) wins over a generic proximity phrase, so "nearest
+# petrol pump" is breakdown, not emergency, even though "nearest" alone would
+# default to emergency.
+EMERGENCY_KEYWORDS = [
+    "accident", "injury", "injured", "emergency", "hurt", "bleeding",
+    "crash", "collision", "sos", "hospital", "police station", "police", "clinic",
+]
+BREAKDOWN_KEYWORDS = [
+    "puncture", "fuel", "petrol", "diesel", "engine", "breakdown", "broke down",
+    "broken down", "battery", "won't start", "wont start", "flat tire", "flat tyre",
+    "mechanic", "tow",
+]
+# Pure "where am I" questions — answered by reverse-geocoding the coordinates
+# directly, not by fetching services. Checked after emergency/breakdown so
+# "hospitals near my location" still searches instead of just naming the area.
+LOCATION_INFO_KEYWORDS = [
+    "my location", "where am i", "what is my location", "current location",
+]
+# Generic proximity phrases with no specific service word — default to an
+# emergency search (the app's core safety use case) rather than falling
+# through to a no-services "general" answer.
+PROXIMITY_KEYWORDS = ["near me", "nearby", "nearest", "close to me", "around me"]
+
+
+def detect_intent(message: str) -> str:
+    """Returns 'emergency', 'breakdown', 'location_info', or 'general'."""
+    m = message.lower()
+    if any(kw in m for kw in EMERGENCY_KEYWORDS):
+        return "emergency"
+    if any(kw in m for kw in BREAKDOWN_KEYWORDS):
+        return "breakdown"
+    if any(kw in m for kw in LOCATION_INFO_KEYWORDS):
+        return "location_info"
+    if any(kw in m for kw in PROXIMITY_KEYWORDS):
+        return "emergency"
+    return "general"
+
+
+def reverse_geocode(lat: float, lng: float) -> Optional[str]:
+    """
+    Reverse-geocode coordinates to a human-readable area name via OSM
+    Nominatim. Returns None on any failure so the caller can degrade
+    gracefully instead of erroring out.
+    """
+    try:
+        r = requests.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={"lat": lat, "lon": lng, "format": "json", "zoom": 14},
+            headers={"User-Agent": "Roadent/2.0 (Road Safety Hackathon 2026)"},
+            timeout=6,
+        )
+        r.raise_for_status()
+        addr = r.json().get("address", {})
+        area = (addr.get("suburb") or addr.get("neighbourhood")
+                or addr.get("city_district") or addr.get("town") or addr.get("village"))
+        # Nominatim sometimes prefixes the locality with an admin zone label
+        # (e.g. "Zone 13 Adyar") — strip that for a cleaner user-facing name.
+        if area:
+            area = re.sub(r'^Zone\s+\d+\s+', '', area)
+
+        # For big Indian metros, `city` is often the formal municipal
+        # corporation name (e.g. "Chennai Corporation") — state_district is
+        # usually the plain, commonly-used city name (e.g. "Chennai").
+        city = addr.get("state_district") or addr.get("city") or addr.get("town") or addr.get("county")
+        state = addr.get("state")
+
+        seen = set()
+        ordered = []
+        for part in (area, city, state):
+            if part and part not in seen:
+                seen.add(part)
+                ordered.append(part)
+        return ", ".join(ordered) if ordered else None
+    except Exception as e:
+        print(f"[reverse_geocode] failed: {e}")
+        return None
+
+
+def forward_geocode(query: str) -> Optional[dict]:
+    """
+    Forward-geocode a free-text place name (city, area, landmark) to
+    coordinates via OSM Nominatim, restricted to India. Returns None on no
+    match or failure so the caller can fall back to treating the text as a
+    normal chat message instead of a location.
+    """
+    try:
+        r = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"q": query, "format": "json", "limit": 1, "countrycodes": "in"},
+            headers={"User-Agent": "Roadent/2.0 (Road Safety Hackathon 2026)"},
+            timeout=6,
+        )
+        r.raise_for_status()
+        results = r.json()
+        if not results:
+            return None
+        top = results[0]
+        return {
+            "lat": float(top["lat"]),
+            "lng": float(top["lon"]),
+            "display_name": top.get("display_name"),
+        }
+    except Exception as e:
+        print(f"[forward_geocode] failed: {e}")
+        return None
+
+
 # ═══════════════════════════════════════════════════════
 #  ENDPOINTS
 # ═══════════════════════════════════════════════════════
@@ -416,6 +592,18 @@ def format_context(services: list[dict]) -> str:
 def health():
     """Always returns OK. Frontend uses this to detect online/offline."""
     return {"status": "ok", "mistral_ready": bool(MISTRAL_API_KEY), "db": DB_PATH}
+
+
+@app.get("/api/geocode")
+def geocode(query: str):
+    """
+    Forward-geocode a typed place name to coordinates — used when GPS is
+    denied/unavailable and the user types their city or area instead.
+    """
+    result = forward_geocode(query)
+    if not result:
+        return JSONResponse(status_code=404, content={"error": "not_found"})
+    return result
 
 
 @app.get("/api/services")
@@ -448,7 +636,21 @@ def emergency_lookup(req: EmergencyRequest):
     """
     Fast raw lookup — returns structured services JSON without LLM.
     Perfect for the SOS button that needs results in <1 second.
+
+    mode="breakdown" switches to Vehicle Breakdown results (petrol pumps,
+    mechanics, towing, puncture shops) instead of hospitals/police/ambulance.
     """
+    if req.mode == "breakdown":
+        data = get_breakdown_nearby(req.lat, req.lng)
+        flat = data["flat"]
+        return {
+            "services":         flat,
+            "by_type":          data["grouped"],
+            "total":            len(flat),
+            "source":           "local_db" if flat else "none",
+            "mode":             "breakdown",
+        }
+
     data = get_all_nearby(req.lat, req.lng)
     flat = data["flat"]
 
@@ -474,29 +676,78 @@ def chat(req: ChatRequest):
     """
     Main chatbot endpoint.
     - Accepts message + lat/lng + conversation history
-    - Queries local DB; falls back to OSM if sparse
+    - Detects intent from the message: "emergency" (accident/injury/hospital/
+      police/near-me wording) fetches hospitals/police/ambulance, "breakdown"
+      (puncture/fuel/engine/mechanic wording) fetches petrol pumps/mechanics/
+      towing/repair shops, "location_info" ("where am I") reverse-geocodes the
+      coordinates directly, anything else is answered conversationally with no
+      service lookup
     - Calls Mistral; falls back to offline structured reply if API fails
     - Multi-turn: pass history[] from frontend for follow-up questions
     """
+    intent = detect_intent(req.message)
+    has_location = req.lat is not None and req.lng is not None
+
+    # "Where am I" is answered directly by reverse-geocoding — deterministic,
+    # no LLM round-trip, no risk of the model guessing/hallucinating a place.
+    if intent == "location_info":
+        if has_location:
+            place = reverse_geocode(req.lat, req.lng)
+            reply = (f"You are near {place}." if place
+                      else f"I have your coordinates ({req.lat:.4f}, {req.lng:.4f}) but couldn't resolve them to a place name right now.")
+        else:
+            reply = "I don't have your location yet — please enable GPS access, or tell me your city or area."
+
+        return {
+            "reply":         reply,
+            "services":      [],
+            "source":        "reverse_geocode" if has_location else "none",
+            "offline":       req.offline,
+            "location_used": has_location,
+            "intent":        intent,
+        }
+
     services = []
     source = "none"
 
-    if req.lat is not None and req.lng is not None:
-        data = get_all_nearby(req.lat, req.lng)
-        flat = data["flat"]
-
-        # OSM fallback if local sparse
-        if len(flat) < 2:
-            osm = osm_fallback(req.lat, req.lng)
-            flat = flat + osm
-            flat.sort(key=lambda x: x["distance_km"])
-            source = "openstreetmap" if osm else "local_db"
+    if has_location and intent in ("emergency", "breakdown"):
+        if intent == "breakdown":
+            data = get_breakdown_nearby(req.lat, req.lng)
+            flat = data["flat"]
+            source = "local_db" if flat else "none"
         else:
-            source = "local_db"
+            data = get_all_nearby(req.lat, req.lng)
+            flat = data["flat"]
+
+            # OSM fallback if local sparse
+            if len(flat) < 2:
+                osm = osm_fallback(req.lat, req.lng)
+                flat = flat + osm
+                flat.sort(key=lambda x: x["distance_km"])
+                source = "openstreetmap" if osm else "local_db"
+            else:
+                source = "local_db"
 
         services = flat
 
-    context = format_context(services)
+    if services:
+        context = format_context(services)
+    elif has_location:
+        # No service search was triggered for this message, but the user's
+        # location IS known — the system prompt is instructed not to claim
+        # otherwise.
+        context = (
+            "The user's location IS known (lat/lng provided), but no specific "
+            "nearby-service search was triggered for this message. Do not say "
+            "you can't track their location — just answer their question directly."
+        )
+    else:
+        context = (
+            "The user's location is NOT available for this message. If relevant, "
+            "politely ask them to enable GPS/location access, or tell you their "
+            "city or area."
+        )
+
     is_offline = req.offline or not MISTRAL_API_KEY
 
     reply = call_mistral(
@@ -504,6 +755,7 @@ def chat(req: ChatRequest):
         history=req.history,
         services_context=context,
         offline=is_offline,
+        intent=intent,
     )
 
     return {
@@ -511,7 +763,8 @@ def chat(req: ChatRequest):
         "services":      services,
         "source":        source,
         "offline":       is_offline,
-        "location_used": req.lat is not None,
+        "location_used": has_location,
+        "intent":        intent,
     }
 
 
@@ -532,7 +785,7 @@ def nearby(lat: float, lng: float, radius_km: float = 30):
 @app.post("/api/services")
 def add_service(req: AddServiceRequest):
     """Add a new service to the local DB (judges can test this too)."""
-    valid = {"hospital","police","ambulance","towing","puncture_shop","showroom"}
+    valid = {"hospital","police","ambulance","towing","puncture_shop","showroom","petrol_pump","mechanic"}
     if req.type not in valid:
         raise HTTPException(400, f"type must be one of: {', '.join(valid)}")
     conn = get_conn()
