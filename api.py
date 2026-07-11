@@ -393,6 +393,14 @@ def osm_fallback(lat, lng, radius_m=10000) -> list[dict]:
     Uses 'nwr' (node + way + relation) so building-mapped hospitals are found.
     'out center' gives a centroid lat/lng even for polygon ways.
     Works for any country — this is the global applicability feature.
+
+    Retries once on failure. Overpass's free public instance intermittently
+    returns a 504 on a cold/uncached query — reproduced directly: a 504
+    after ~9s, then a 200 in ~8s on an immediate retry with the identical
+    query. Each attempt gets a tighter 12s timeout (down from a single 22s
+    attempt), so two attempts costs roughly the same worst-case wait as
+    the old single attempt did, while making it far less likely a user
+    loses OSM results to a transient failure that a second try clears.
     """
     query = f"""
 [out:json][timeout:20];
@@ -412,65 +420,75 @@ out center;
         "ambulance_station": "ambulance",
         "fire_station":      "towing",   # closest proxy for roadside help
     }
-    try:
-        r = requests.post(
-            OVERPASS_URL,
-            data={"data": query},
-            headers={"User-Agent": "Roadent/2.0 (student hackathon project)"},
-            timeout=22,
-        )
-        r.raise_for_status()
-        results = []
-        seen: dict[str, int] = {}
 
-        for el in r.json().get("elements", []):
-            tags = el.get("tags", {})
-            amenity = tags.get("amenity") or tags.get("emergency", "")
-            stype = TYPE_MAP.get(amenity)
-            if not stype:
-                continue
+    ATTEMPTS = 2
+    ATTEMPT_TIMEOUT = 12
 
-            # Nodes have lat/lon directly; ways/relations expose a 'center' object
-            el_lat = el.get("lat") or el.get("center", {}).get("lat")
-            el_lng = el.get("lon") or el.get("center", {}).get("lon")
-            if not el_lat or not el_lng:
-                continue
+    for attempt in range(1, ATTEMPTS + 1):
+        t0 = time.time()
+        try:
+            r = requests.post(
+                OVERPASS_URL,
+                data={"data": query},
+                headers={"User-Agent": "Roadent/2.0 (student hackathon project)"},
+                timeout=ATTEMPT_TIMEOUT,
+            )
+            r.raise_for_status()
+            results = []
+            seen: dict[str, int] = {}
 
-            seen[stype] = seen.get(stype, 0) + 1
-            if seen[stype] > 6:   # max 6 per type from OSM
-                continue
+            for el in r.json().get("elements", []):
+                tags = el.get("tags", {})
+                amenity = tags.get("amenity") or tags.get("emergency", "")
+                stype = TYPE_MAP.get(amenity)
+                if not stype:
+                    continue
 
-            # Best-effort name — OSM data quality varies internationally
-            name = (tags.get("name")
-                    or tags.get("name:en")
-                    or tags.get("operator")
-                    or f"Nearby {stype.replace('_', ' ').title()}")
+                # Nodes have lat/lon directly; ways/relations expose a 'center' object
+                el_lat = el.get("lat") or el.get("center", {}).get("lat")
+                el_lng = el.get("lon") or el.get("center", {}).get("lon")
+                if not el_lat or not el_lng:
+                    continue
 
-            results.append({
-                "name":        name,
-                "type":        stype,
-                "lat":         el_lat,
-                "lng":         el_lng,
-                "phone":       (tags.get("phone")
-                                or tags.get("contact:phone")
-                                or tags.get("contact:mobile")
-                                or "N/A"),
-                "address":     (tags.get("addr:full")
-                                or tags.get("addr:street")
-                                or ""),
-                "city":        tags.get("addr:city") or tags.get("addr:district") or "",
-                "state":       tags.get("addr:state") or tags.get("addr:province") or "",
-                "distance_km": round(haversine(lat, lng, el_lat, el_lng), 2),
-                "source":      "openstreetmap",
-            })
+                seen[stype] = seen.get(stype, 0) + 1
+                if seen[stype] > 6:   # max 6 per type from OSM
+                    continue
 
-        results.sort(key=lambda x: x["distance_km"])
-        print(f"[OSM] found {len(results)} results near ({lat:.3f},{lng:.3f})")
-        return results
+                # Best-effort name — OSM data quality varies internationally
+                name = (tags.get("name")
+                        or tags.get("name:en")
+                        or tags.get("operator")
+                        or f"Nearby {stype.replace('_', ' ').title()}")
 
-    except Exception as e:
-        print(f"[OSM] fallback failed: {e}")
-        return []
+                results.append({
+                    "name":        name,
+                    "type":        stype,
+                    "lat":         el_lat,
+                    "lng":         el_lng,
+                    "phone":       (tags.get("phone")
+                                    or tags.get("contact:phone")
+                                    or tags.get("contact:mobile")
+                                    or "N/A"),
+                    "address":     (tags.get("addr:full")
+                                    or tags.get("addr:street")
+                                    or ""),
+                    "city":        tags.get("addr:city") or tags.get("addr:district") or "",
+                    "state":       tags.get("addr:state") or tags.get("addr:province") or "",
+                    "distance_km": round(haversine(lat, lng, el_lat, el_lng), 2),
+                    "source":      "openstreetmap",
+                })
+
+            results.sort(key=lambda x: x["distance_km"])
+            print(f"[OSM] found {len(results)} results near ({lat:.3f},{lng:.3f}) "
+                  f"(attempt {attempt}/{ATTEMPTS}, {time.time()-t0:.2f}s)")
+            return results
+
+        except Exception as e:
+            print(f"[OSM] attempt {attempt}/{ATTEMPTS} failed after {time.time()-t0:.2f}s "
+                  f"({type(e).__name__}): {e}")
+
+    print(f"[OSM] all {ATTEMPTS} attempts failed near ({lat:.3f},{lng:.3f}) — DB-only for this request")
+    return []
 
 
 # ── Mistral call ─────────────────────────────────────────
