@@ -603,6 +603,33 @@
     }
     .whatsapp-btn:active { transform: translateY(0); }
 
+    /* Crash-alert action buttons — the always-on-screen "call / message"
+       pair shown when the countdown hits zero. Neither action can happen
+       without a tap (browsers block silent calls/sends), so these are
+       styled to be impossible to miss rather than being a quiet fallback. */
+    .crash-action-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      margin-top: 10px;
+      padding: 14px;
+      border-radius: var(--radius-sm);
+      font-family: var(--body);
+      font-size: 14.5px;
+      font-weight: 700;
+      text-decoration: none;
+      color: #fff;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .crash-action-btn:active { transform: scale(0.98); }
+    .crash-action-btn.call { background: var(--coral); }
+    .crash-action-btn.call:hover { background: #c4502d; }
+    .crash-action-btn.whatsapp { background: #25D366; }
+    .crash-action-btn.whatsapp:hover { background: #20bd5a; }
+
     /* Typing indicator */
     .typing-row { display: flex; gap: 5px; align-items: center; padding: 4px 2px; }
     .typing-row span {
@@ -2432,19 +2459,29 @@ async function onCrashCountdownZero() {
     addBot('⚠️ Crash alert triggered, but your location is not available yet.');
   }
 
+  // Neither a phone call nor a WhatsApp send can ever happen without a
+  // human tap — browsers block both without direct user interaction, no
+  // way around it. So rather than relying on a silent auto-open (which is
+  // unreliable — see below) and only showing a fallback if that happens to
+  // fail, put both one-tap actions on screen unconditionally, right where
+  // whoever is present (driver or bystander) will see them immediately.
+  let waUrl = null;
   if (emergencyContact && userLat != null && userLng != null) {
     const mapsLink = `https://www.google.com/maps?q=${userLat},${userLng}`;
-    const message = `🚨 AUTOMATIC CRASH ALERT from Roadent. A possible accident was detected and the driver did not respond. Location: ${mapsLink}. Please check on them or call emergency services.`;
-    const waUrl = `https://wa.me/91${emergencyContact}?text=${encodeURIComponent(message)}`;
-    const opened = window.open(waUrl, '_blank');
-    // Browsers commonly block window.open() when it isn't triggered by a
-    // direct user gesture — this call happens automatically after a 30s
-    // countdown, so there's no gesture to point to. If that happened here,
-    // surface a tappable fallback so the alert isn't silently lost.
-    if (!opened) {
-      addBot(`⚠️ Your browser blocked the automatic WhatsApp alert. <a href="${waUrl}" target="_blank" rel="noopener noreferrer" style="color:var(--coral);font-weight:700;">Tap here to send it to your emergency contact</a>.`, true);
-    }
+    const message = `🚨 CRASH ALERT from Roadent. A possible accident was detected and the driver did not respond. Location: ${mapsLink}. Please check on them or call emergency services.`;
+    waUrl = `https://wa.me/91${emergencyContact}?text=${encodeURIComponent(message)}`;
+    // Best-effort silent open — browsers commonly block window.open() when
+    // it isn't triggered by a direct gesture (a 30s countdown isn't one),
+    // so this saves a tap when it happens to work, but the button below
+    // covers it either way.
+    window.open(waUrl, '_blank');
   }
+
+  addBot(`
+    <strong>⚠️ No response received.</strong>
+    <a href="tel:108" class="crash-action-btn call">📞 Call 108 Now</a>
+    ${waUrl ? `<a href="${waUrl}" target="_blank" rel="noopener noreferrer" class="crash-action-btn whatsapp">💬 Alert Emergency Contact on WhatsApp</a>` : ''}
+  `, true);
 
   const nearestHospital = lastKnownServices.find(s => s.type === 'hospital');
   const announceText = nearestHospital
