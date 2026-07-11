@@ -246,25 +246,25 @@
 
     /* ── Panel Header ──────────────────────────── */
     #panel-header {
+      position: relative;
       padding: 18px 20px 16px;
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
       background: var(--cream);
     }
 
-    .header-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 12px;
-    }
-
-    .header-label {
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--text-soft);
+    /* Soft fade where the scrollable card list passes under the header —
+       same technique as #map-panel::after — so text scrolled up to the
+       boundary fades out instead of being hard-clipped mid-line. */
+    #panel-header::after {
+      content: '';
+      position: absolute;
+      left: 0; right: 0;
+      bottom: -14px;
+      height: 14px;
+      background: linear-gradient(to bottom, var(--cream), transparent);
+      pointer-events: none;
+      z-index: 5;
     }
 
     /* First Aid quick-reference button — works fully offline, so it's
@@ -332,14 +332,6 @@
       cursor: not-allowed;
       transform: none;
       box-shadow: none;
-    }
-
-    .sos-hint {
-      font-size: 11.5px;
-      color: var(--text-soft);
-      text-align: center;
-      margin-top: 8px;
-      font-style: italic;
     }
 
     /* Vehicle Breakdown button — amber, secondary to the red SOS button */
@@ -544,35 +536,6 @@
       padding: 3px 8px;
       border-radius: 20px;
       white-space: nowrap;
-    }
-
-    /* national numbers strip */
-    .national-strip {
-      margin-top: 12px;
-      padding-top: 10px;
-      border-top: 1px solid var(--border);
-      display: flex;
-      gap: 8px;
-    }
-
-    .nat-chip {
-      flex: 1;
-      text-align: center;
-      background: var(--cream2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 6px 4px;
-      font-size: 11px;
-      color: var(--text-mid);
-    }
-
-    .nat-chip strong {
-      display: block;
-      font-size: 14px;
-      /* coral-soft, not coral — small red text needs a lighter shade than
-         the SOS button fill to clear WCAG AA 4.5:1 on a dark card. */
-      color: var(--coral-soft);
-      font-family: var(--display);
     }
 
     /* Source badge — Local DB vs OpenStreetMap */
@@ -913,8 +876,8 @@
     .hotline {
       flex: 1;
       text-align: center;
-      padding: 8px 4px;
-      font-size: 11px;
+      padding: 6px 4px;
+      font-size: 9.5px;
       color: var(--text-mid);
       border-right: 1px solid var(--border);
     }
@@ -922,7 +885,7 @@
     .hotline strong {
       display: block;
       font-family: var(--display);
-      font-size: 15px;
+      font-size: 13px;
       color: var(--coral-soft);
       margin-bottom: 1px;
     }
@@ -936,6 +899,15 @@
       scrollbar-width: none;
     }
     #suggestion-chips::-webkit-scrollbar { display: none; }
+
+    /* Hide once real conversation/results exist — a user message or a
+       rendered service card. The automatic "Finding your location…"
+       bot message on load doesn't count, so chips still show at
+       fresh load alongside it. */
+    #chat-panel:has(#chat-box .msg-wrap.user) #suggestion-chips,
+    #chat-panel:has(#chat-box .svc-card) #suggestion-chips {
+      display: none;
+    }
 
     .suggestion-chip {
       flex-shrink: 0;
@@ -1215,6 +1187,8 @@
          room to show without pushing the layout wider than the viewport. */
       .logo-sub { display: none; }
       .topbar-actions { gap: 6px; }
+      #first-aid-btn #first-aid-label { display: none; }
+      #first-aid-btn { padding: 7px; }
       #tts-toggle #tts-label { display: none; }
       #tts-toggle { padding: 7px; }
       #drive-toggle #drive-toggle-label { display: none; }
@@ -1252,9 +1226,22 @@
         border-left: none;
       }
 
-      /* 48px+ touch targets on the primary emergency actions */
-      #sos-btn, #breakdown-btn {
-        min-height: 48px;
+      /* Compact panel header — 12px top/bottom padding, buttons sized down
+         to keep the whole emergency section under ~160px so chat responses
+         get maximum screen space. Still well above the 48px touch-target
+         minimum. */
+      #panel-header {
+        padding: 12px 20px;
+      }
+
+      #sos-btn {
+        height: 68px;
+        padding: 8px 20px;
+      }
+
+      #breakdown-btn {
+        height: 56px;
+        padding: 8px 20px;
       }
 
       #send-btn, #mic-btn {
@@ -1291,6 +1278,7 @@
     </div>
   </div>
   <div class="topbar-actions">
+    <button class="first-aid-btn" id="first-aid-btn" onclick="openFirstAid()">🩹 <span id="first-aid-label">First Aid</span></button>
     <div id="tts-toggle" onclick="toggleTTS()" title="Toggle voice readout">
       <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
       <span id="tts-label">Voice off</span>
@@ -1320,10 +1308,6 @@
   <div id="chat-panel">
 
     <div id="panel-header">
-      <div class="header-row">
-        <div class="header-label">Emergency Help</div>
-        <button class="first-aid-btn" onclick="openFirstAid()">🩹 First Aid</button>
-      </div>
       <button id="sos-btn" disabled onclick="triggerSOS()">
         <span class="sos-icon">🆘</span>
         I need help right now
@@ -1332,7 +1316,6 @@
         <span class="breakdown-icon">🔧</span>
         Vehicle Breakdown
       </button>
-      <div class="sos-hint" id="sos-hint">Finding your location…</div>
       <div id="offline-notice">
         ⚡ Offline — showing saved local data
       </div>
@@ -1658,7 +1641,6 @@ function onLocationReady() {
   document.getElementById('coord-pill').classList.add('show');
 
   setStatus('online', 'Location found');
-  document.getElementById('sos-hint').textContent = 'Tap above for immediate emergency help';
   document.getElementById('sos-btn').disabled = false;
   document.getElementById('breakdown-btn').disabled = false;
   enableInput();
@@ -2088,17 +2070,6 @@ function renderServices(services, isOffline, showReportBtn = false, mode = 'emer
     bubble.appendChild(section);
   });
 
-  // National numbers strip
-  const strip = document.createElement('div');
-  strip.className = 'national-strip';
-  [['108','Ambulance'], ['100','Police'], ['1073','Highway']].forEach(([num, lbl]) => {
-    const chip = document.createElement('div');
-    chip.className = 'nat-chip';
-    chip.innerHTML = `<strong><a href="tel:${num}" style="color:inherit;text-decoration:none;">${num}</a></strong>${lbl}`;
-    strip.appendChild(chip);
-  });
-  bubble.appendChild(strip);
-
   // Report button — only shown after SOS, not on every chat response
   if (showReportBtn && userLat) {
     const reportBtn = document.createElement('button');
@@ -2122,7 +2093,11 @@ function renderServices(services, isOffline, showReportBtn = false, mode = 'emer
   wrap.appendChild(bubble);
   document.getElementById('chat-box').appendChild(wrap);
   lastServiceCardEl = wrap;
-  scrollBottom();
+  // Scroll to the TOP of the new results (not the chat's bottom) so the
+  // first, nearest service is immediately visible instead of scrolled
+  // past — unlike a normal chat reply, a results card is usually taller
+  // than the viewport.
+  wrap.scrollIntoView({ block: 'start' });
 }
 
 /* ═══════════════════════════════════════════
