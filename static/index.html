@@ -900,15 +900,6 @@
     }
     #suggestion-chips::-webkit-scrollbar { display: none; }
 
-    /* Hide once real conversation/results exist — a user message or a
-       rendered service card. The automatic "Finding your location…"
-       bot message on load doesn't count, so chips still show at
-       fresh load alongside it. */
-    #chat-panel:has(#chat-box .msg-wrap.user) #suggestion-chips,
-    #chat-panel:has(#chat-box .svc-card) #suggestion-chips {
-      display: none;
-    }
-
     .suggestion-chip {
       flex-shrink: 0;
       background: var(--cream2);
@@ -1664,6 +1655,7 @@ async function triggerSOS() {
   addUser(userText);
   busy = true;
   setInputEnabled(false);
+  lastFetchFailed = false;
 
   const typing = addTyping();
 
@@ -1725,6 +1717,7 @@ async function triggerSOS() {
   } catch (err) {
     typing.remove();
     console.error('[SOS]', err);
+    lastFetchFailed = true;
     // A thrown fetch error (including our own AbortError on timeout) is NOT
     // the same thing as the user being offline — only the browser's own
     // connectivity signal gets to decide that. Otherwise this was just a
@@ -1744,6 +1737,7 @@ async function triggerSOS() {
     } else {
       addFallback();
     }
+    updateContextualUI();
   }
 
   busy = false;
@@ -1763,6 +1757,7 @@ async function triggerBreakdown() {
   addUser('🔧 My vehicle broke down — I need a mechanic, fuel, or a tow');
   busy = true;
   setInputEnabled(false);
+  lastFetchFailed = false;
 
   const typing = addTyping();
 
@@ -1791,8 +1786,10 @@ async function triggerBreakdown() {
   } catch (err) {
     typing.remove();
     console.error('[Breakdown]', err);
+    lastFetchFailed = true;
     addBot('⚠️ Can\'t reach the server right now. For roadside help, try the highway helpline: '
       + '<a href="tel:1073" style="color:var(--amber);font-weight:700;">1073</a>.', true);
+    updateContextualUI();
   }
 
   busy = false;
@@ -1857,6 +1854,7 @@ async function sendSuggested(text) {
 async function doChat(text) {
   busy = true;
   setInputEnabled(false);
+  lastFetchFailed = false;
   chatHistory.push({ role: 'user', content: text });
   const typing = addTyping();
 
@@ -1904,6 +1902,7 @@ async function doChat(text) {
   } catch (err) {
     typing.remove();
     console.error('[chat]', err);
+    lastFetchFailed = true;
     // Same principle as the SOS catch block: a thrown fetch error (including
     // our own AbortError on timeout) isn't a real connectivity loss unless
     // the browser itself agrees — otherwise this was just a slow request.
@@ -1919,6 +1918,7 @@ async function doChat(text) {
     } else {
       addFallback();
     }
+    updateContextualUI();
   }
 
   busy = false;
@@ -2098,6 +2098,7 @@ function renderServices(services, isOffline, showReportBtn = false, mode = 'emer
   // past — unlike a normal chat reply, a results card is usually taller
   // than the viewport.
   wrap.scrollIntoView({ block: 'start' });
+  updateContextualUI();
 }
 
 /* ═══════════════════════════════════════════
@@ -2238,6 +2239,7 @@ function addUser(text) {
   w.innerHTML = `<div class="msg-sender">You</div><div class="bubble user">${escapeHtml(text)}</div>`;
   document.getElementById('chat-box').appendChild(w);
   scrollBottom();
+  updateContextualUI();
 }
 
 function addBot(html, isWarn = false) {
@@ -2289,9 +2291,30 @@ function setStatus(type, label) {
   document.getElementById('status-label').textContent = label;
 }
 
+// Set to true inside a request's catch block when it fails while the
+// browser still reports itself online (a timeout or server error, not a
+// real connectivity loss) — reset optimistically at the start of the next
+// attempt. Read by updateContextualUI() alongside navigator.onLine.
+let lastFetchFailed = false;
+
+// Suggestion chips and the bottom hotline strip are both "nothing has
+// happened yet" affordances — hide them once real conversation exists
+// (a user message or a rendered service card), except the strip stays
+// (or comes back) whenever the connection is degraded, since that's
+// exactly when quick access to the raw numbers matters most.
+function updateContextualUI() {
+  const chatBox = document.getElementById('chat-box');
+  const hasConversation = !!chatBox.querySelector('.msg-wrap.user') || !!chatBox.querySelector('.svc-card');
+  const degraded = !navigator.onLine || lastFetchFailed;
+
+  document.getElementById('suggestion-chips').style.display = hasConversation ? 'none' : '';
+  document.getElementById('hotlines').style.display = (!hasConversation || degraded) ? '' : 'none';
+}
+
 function showOffline() {
   document.getElementById('offline-notice').classList.add('show');
   setStatus('offline', 'Offline mode');
+  updateContextualUI();
 }
 
 function enableInput() {
@@ -2322,6 +2345,7 @@ window.addEventListener('offline', showOffline);
 window.addEventListener('online', () => {
   document.getElementById('offline-notice').classList.remove('show');
   if (userLat) setStatus('online', 'Back online');
+  updateContextualUI();
 });
 
 /* ═══════════════════════════════════════════
@@ -2841,6 +2865,7 @@ async function pingHealth() {
 setInterval(pingHealth, 60000);
 
 // ── Kick off geolocation last, after every function is defined ──
+updateContextualUI();
 startGeolocation();
 </script>
 </body>
