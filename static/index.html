@@ -7,43 +7,79 @@
   <link rel="manifest" href="/static/manifest.json">
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icon.svg">
-  <meta name="theme-color" content="#d95f3b">
+  <meta name="theme-color" content="#1c1e22">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <style>
     /* ── Tokens ─────────────────────────────────── */
     :root {
-      --cream:       #faf8f4;
-      --cream2:      #f4f1eb;
-      --cream3:      #ede9e0;
-      --stone:       #e8e2d8;
-      --border:      #ddd8ce;
-      --coral:       #d95f3b;
-      --coral-soft:  #f2896a;
-      --coral-bg:    #fdf0eb;
-      --coral-ring:  rgba(217,95,59,0.2);
-      --sage:        #5a8a6a;
-      --sage-bg:     #edf4ef;
-      --sky:         #3b7fc4;
-      --sky-bg:      #eaf2fb;
-      --amber:       #b07d2a;
-      --amber-bg:    #fdf5e4;
-      --text:        #2a2520;
-      --text-mid:    #6b6058;
-      --text-soft:   #9c9389;
-      --text-faint:  #c5bfb6;
-      --display:     'Fraunces', Georgia, serif;
-      --body:        'Instrument Sans', sans-serif;
+      /* "Night drive" — charcoal + green + red SOS.
+         Variable NAMES are kept from the previous light theme so every
+         existing var(--x) reference below still resolves — only the
+         palette this file draws from has changed (CSS/visual only). */
+      --cream:       #1c1e22;   /* page background */
+      --cream2:      #26292e;   /* card/panel surfaces */
+      --cream3:      #2a2d33;   /* elevated surfaces (hover states) */
+      --stone:       #4a4e57;   /* scrollbar thumb, disabled fills */
+      --border:      #3a3d44;   /* hairline borders */
+
+      /* SOS red — reserved for genuine emergency elements only (SOS
+         button, crash overlay, "Call 108 Now", emergency numbers). General
+         UI accents that used to borrow this color now use the green family
+         below instead, so red keeps a single, unambiguous meaning. */
+      --coral:       #E24B4A;
+      --coral-soft:  #ea6f6e;
+      --coral-bg:    rgba(226,75,74,0.16);
+      --coral-ring:  rgba(226,75,74,0.3);
+
+      /* Primary accent — green family */
+      --sage:          #97C459;  /* primary — inline text/icon accents on dark surfaces */
+      --sage-bg:       rgba(151,196,89,0.14); /* soft pill backgrounds */
+      --green-deep:    #3B6D11;  /* solid-fill CTA buttons (paired with white text) */
+      --green-darkest: #27500A;  /* solid badge/chip fills (paired with pale text) */
+      --green-pale:    #C0DD97;  /* text color on --green-darkest fills */
+      --green-ring:    rgba(151,196,89,0.3);
+
+      /* Breakdown amber */
+      --amber:       #EF9F27;
+      --amber-text:  #FAC775;
+      --amber-bg:    rgba(239,159,39,0.14);
+
+      /* External/info accent (OpenStreetMap source badge, Navigate links) —
+         kept as its own hue so the existing local/OSM/breakdown/emergency
+         four-way color coding still reads at a glance in the dark theme. */
+      --sky:         #6FA3D8;
+      --sky-bg:      rgba(111,163,216,0.14);
+
+      --text:        #e8eaed;   /* primary text */
+      --text-mid:    #b8bbc0;   /* secondary text */
+      --text-soft:   #a3a6ab;   /* between secondary and muted */
+      --text-faint:  #8f9296;   /* muted text — brightened from the spec's #7a7e86
+                                    (3.6:1 on cards) to clear WCAG AA 4.5:1 for body text */
+
+      --display:     'Archivo', sans-serif;
+      --body:        'Inter', sans-serif;
+      --mono:        'JetBrains Mono', monospace;
       --radius-sm:   8px;
       --radius:      14px;
       --radius-lg:   20px;
-      --shadow:      0 2px 12px rgba(42,37,32,0.07);
-      --shadow-md:   0 4px 24px rgba(42,37,32,0.10);
+      --shadow:      0 2px 12px rgba(0,0,0,0.3);
+      --shadow-md:   0 4px 24px rgba(0,0,0,0.45);
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; overflow: hidden; }
+
+    ::selection { background: var(--green-ring); color: var(--text); }
+
+    /* Visible keyboard-focus ring app-wide — default browser outlines
+       don't read well against the dark surfaces, so give every
+       interactive element an explicit green ring instead. */
+    button:focus-visible, a:focus-visible, input:focus-visible {
+      outline: 2px solid var(--sage);
+      outline-offset: 2px;
+    }
 
     body {
       font-family: var(--body);
@@ -84,7 +120,9 @@
     .logo-mark {
       width: 32px;
       height: 32px;
-      background: var(--coral);
+      /* Fixed brand-identity color, not tied to the theme accent system —
+         the original orange, kept the same in both light and dark. */
+      background: #d95f3b;
       border-radius: 10px;
       display: flex;
       align-items: center;
@@ -131,6 +169,21 @@
     .chip-dot.online   { background: var(--sage); box-shadow: 0 0 0 3px var(--sage-bg); }
     .chip-dot.offline  { background: var(--amber); }
 
+    /* Brief calls for a solid dark-green fill + pale text on the status
+       chip — applied specifically to the "online" state so locating/
+       offline still read as distinct via their own amber-tinted look. */
+    .status-chip:has(.chip-dot.online) {
+      background: var(--green-darkest);
+      border-color: var(--green-deep);
+      color: var(--green-pale);
+    }
+    .status-chip:has(.chip-dot.offline),
+    .status-chip:has(.chip-dot.locating) {
+      background: var(--amber-bg);
+      border-color: rgba(239,159,39,0.3);
+      color: var(--amber-text);
+    }
+
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
 
     /* ── Layout ────────────────────────────────── */
@@ -166,7 +219,8 @@
       position: absolute;
       bottom: 18px;
       left: 16px;
-      background: rgba(250,248,244,0.92);
+      font-family: var(--mono);
+      background: rgba(28,30,34,0.85);
       border: 1px solid var(--border);
       border-radius: 20px;
       padding: 6px 13px;
@@ -218,7 +272,7 @@
        that SOS/Breakdown use. */
     .first-aid-btn {
       background: var(--sage-bg);
-      border: 1px solid rgba(90,138,106,0.3);
+      border: 1px solid rgba(151,196,89,0.3);
       border-radius: 20px;
       padding: 5px 12px;
       font-size: 11.5px;
@@ -234,8 +288,8 @@
     }
 
     .first-aid-btn:hover {
-      background: #dfeee4;
-      border-color: rgba(90,138,106,0.45);
+      background: rgba(151,196,89,0.22);
+      border-color: rgba(151,196,89,0.5);
     }
 
     /* SOS Button */
@@ -265,8 +319,8 @@
     }
 
     #sos-btn:not(:disabled):hover {
-      background: #c4502d;
-      box-shadow: 0 4px 20px rgba(217,95,59,0.35);
+      background: #c23d3c;
+      box-shadow: 0 4px 20px rgba(226,75,74,0.4);
       transform: translateY(-1px);
     }
 
@@ -294,7 +348,7 @@
       padding: 12px 20px;
       margin-top: 8px;
       background: var(--amber-bg);
-      border: 1px solid rgba(176,125,42,0.35);
+      border: 1px solid rgba(239,159,39,0.35);
       border-radius: var(--radius);
       color: var(--amber);
       font-family: var(--display);
@@ -312,8 +366,8 @@
     #breakdown-btn .breakdown-icon { font-size: 18px; line-height: 1; }
 
     #breakdown-btn:not(:disabled):hover {
-      background: #fbe9c8;
-      box-shadow: 0 4px 16px rgba(176,125,42,0.25);
+      background: rgba(239,159,39,0.22);
+      box-shadow: 0 4px 16px rgba(239,159,39,0.3);
       transform: translateY(-1px);
     }
 
@@ -333,7 +387,7 @@
       display: none;
       margin-top: 10px;
       background: var(--amber-bg);
-      border: 1px solid rgba(176,125,42,0.2);
+      border: 1px solid rgba(239,159,39,0.2);
       border-radius: var(--radius-sm);
       padding: 8px 12px;
       font-size: 12px;
@@ -395,13 +449,13 @@
     }
 
     .bubble.user {
-      background: var(--coral);
+      background: var(--green-deep);
       color: #fff;
       border-bottom-right-radius: 4px;
     }
 
     .bubble.bot {
-      background: #fff;
+      background: var(--cream2);
       border: 1px solid var(--border);
       color: var(--text);
       border-bottom-left-radius: 4px;
@@ -410,14 +464,14 @@
 
     .bubble.warn {
       background: var(--amber-bg);
-      border: 1px solid rgba(176,125,42,0.18);
+      border: 1px solid rgba(239,159,39,0.18);
     }
 
     /* Vehicle Breakdown result cards — amber accent, distinguished from the
        offline .warn bubble by a left border stripe */
     .bubble.breakdown {
       background: var(--amber-bg);
-      border: 1px solid rgba(176,125,42,0.18);
+      border: 1px solid rgba(239,159,39,0.18);
       border-left: 3px solid var(--amber);
     }
 
@@ -481,11 +535,12 @@
     }
 
     .svc-dist {
+      font-family: var(--mono);
       font-size: 12px;
-      font-weight: 600;
-      color: var(--text-soft);
+      font-weight: 500;
+      color: var(--green-pale);
       flex-shrink: 0;
-      background: var(--cream3);
+      background: var(--green-darkest);
       padding: 3px 8px;
       border-radius: 20px;
       white-space: nowrap;
@@ -514,7 +569,9 @@
     .nat-chip strong {
       display: block;
       font-size: 14px;
-      color: var(--coral);
+      /* coral-soft, not coral — small red text needs a lighter shade than
+         the SOS button fill to clear WCAG AA 4.5:1 on a dark card. */
+      color: var(--coral-soft);
       font-family: var(--display);
     }
 
@@ -533,17 +590,17 @@
     .source-badge.local {
       background: var(--sage-bg);
       color: var(--sage);
-      border: 1px solid rgba(90,138,106,0.2);
+      border: 1px solid rgba(151,196,89,0.2);
     }
     .source-badge.osm {
       background: var(--sky-bg);
       color: var(--sky);
-      border: 1px solid rgba(59,127,196,0.2);
+      border: 1px solid rgba(111,163,216,0.2);
     }
     .source-badge.breakdown {
       background: var(--amber-bg);
       color: var(--amber);
-      border: 1px solid rgba(176,125,42,0.2);
+      border: 1px solid rgba(239,159,39,0.2);
     }
 
     /* Report button */
@@ -567,12 +624,12 @@
     }
     .report-btn:hover {
       background: var(--cream3);
-      border-color: var(--coral-soft);
+      border-color: var(--sage);
       color: var(--text);
     }
     .report-btn.copied {
       background: var(--sage-bg);
-      border-color: rgba(90,138,106,0.3);
+      border-color: rgba(151,196,89,0.3);
       color: var(--sage);
     }
 
@@ -626,7 +683,7 @@
     }
     .crash-action-btn:active { transform: scale(0.98); }
     .crash-action-btn.call { background: var(--coral); }
-    .crash-action-btn.call:hover { background: #c4502d; }
+    .crash-action-btn.call:hover { background: #c23d3c; }
     .crash-action-btn.whatsapp { background: #25D366; }
     .crash-action-btn.whatsapp:hover { background: #20bd5a; }
 
@@ -653,7 +710,7 @@
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(42,37,32,0.45);
+      background: rgba(0,0,0,0.6);
       z-index: 2000;
       align-items: center;
       justify-content: center;
@@ -663,7 +720,7 @@
     .first-aid-overlay.show { display: flex; }
 
     .first-aid-panel {
-      background: var(--cream);
+      background: var(--cream2);
       border-radius: var(--radius-lg);
       box-shadow: var(--shadow-md);
       max-width: 440px;
@@ -719,7 +776,7 @@
     }
 
     .first-aid-card {
-      background: #fff;
+      background: var(--cream3);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       overflow: hidden;
@@ -866,7 +923,7 @@
       display: block;
       font-family: var(--display);
       font-size: 15px;
-      color: var(--coral);
+      color: var(--coral-soft);
       margin-bottom: 1px;
     }
 
@@ -894,9 +951,9 @@
       transition: background 0.15s, border-color 0.15s, color 0.15s;
     }
     .suggestion-chip:hover:not(:disabled) {
-      background: var(--coral-bg);
-      border-color: var(--coral-soft);
-      color: var(--coral);
+      background: var(--sage-bg);
+      border-color: var(--sage);
+      color: var(--sage);
     }
     .suggestion-chip:disabled {
       opacity: 0.5;
@@ -913,7 +970,7 @@
 
     #chat-input {
       flex: 1;
-      background: #fff;
+      background: var(--cream2);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       color: var(--text);
@@ -927,8 +984,8 @@
     }
 
     #chat-input:focus {
-      border-color: var(--coral-soft);
-      box-shadow: 0 0 0 3px var(--coral-ring);
+      border-color: var(--sage);
+      box-shadow: 0 0 0 3px var(--green-ring);
     }
 
     #chat-input::placeholder { color: var(--text-faint); }
@@ -938,7 +995,7 @@
       width: 42px;
       height: 42px;
       flex-shrink: 0;
-      background: var(--coral);
+      background: var(--green-deep);
       border: none;
       border-radius: var(--radius-sm);
       cursor: pointer;
@@ -950,8 +1007,8 @@
 
     #send-btn svg { width: 17px; height: 17px; fill: white; }
     #send-btn:hover:not(:disabled) {
-      background: #c4502d;
-      box-shadow: 0 4px 14px rgba(217,95,59,0.3);
+      background: #2d5a0d;
+      box-shadow: 0 4px 14px rgba(59,109,17,0.4);
       transform: translateY(-1px);
     }
     #send-btn:active:not(:disabled) { transform: none; }
@@ -982,31 +1039,31 @@
 
     #mic-btn:hover:not(:disabled) {
       background: var(--cream3);
-      border-color: var(--coral-soft);
+      border-color: var(--sage);
     }
 
-    #mic-btn:hover:not(:disabled) svg { fill: var(--coral); }
+    #mic-btn:hover:not(:disabled) svg { fill: var(--sage); }
 
     #mic-btn.listening {
-      background: var(--coral-bg);
-      border-color: var(--coral);
-      box-shadow: 0 0 0 3px var(--coral-ring);
+      background: var(--sage-bg);
+      border-color: var(--sage);
+      box-shadow: 0 0 0 3px var(--green-ring);
       animation: mic-pulse 1.2s ease-in-out infinite;
     }
 
-    #mic-btn.listening svg { fill: var(--coral); }
+    #mic-btn.listening svg { fill: var(--sage); }
 
     #mic-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
     @keyframes mic-pulse {
-      0%, 100% { box-shadow: 0 0 0 3px var(--coral-ring); }
+      0%, 100% { box-shadow: 0 0 0 3px var(--green-ring); }
       50%       { box-shadow: 0 0 0 7px transparent; }
     }
 
     /* voice transcript preview inside input */
     #chat-input.listening {
-      border-color: var(--coral-soft);
-      box-shadow: 0 0 0 3px var(--coral-ring);
+      border-color: var(--sage);
+      box-shadow: 0 0 0 3px var(--green-ring);
     }
 
     /* TTS speaker toggle in topbar */
@@ -1029,7 +1086,7 @@
 
     #tts-toggle.active {
       background: var(--sage-bg);
-      border-color: rgba(90,138,106,0.3);
+      border-color: rgba(151,196,89,0.3);
       color: var(--sage);
     }
 
@@ -1054,9 +1111,9 @@
     #drive-toggle:hover { background: var(--cream3); }
 
     #drive-toggle.active {
-      background: var(--coral-bg);
-      border-color: rgba(217,95,59,0.35);
-      color: var(--coral);
+      background: var(--sage-bg);
+      border-color: rgba(151,196,89,0.4);
+      color: var(--sage);
     }
 
     #drive-edit-btn {
@@ -1081,7 +1138,7 @@
       width: 100%;
       margin-top: 12px;
       padding: 11px 14px;
-      background: #fff;
+      background: var(--cream);
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       font-family: var(--body);
@@ -1090,11 +1147,11 @@
       outline: none;
     }
     .contact-input:focus {
-      border-color: var(--coral-soft);
-      box-shadow: 0 0 0 3px var(--coral-ring);
+      border-color: var(--sage);
+      box-shadow: 0 0 0 3px var(--green-ring);
     }
     .contact-error {
-      color: var(--coral);
+      color: var(--coral-soft);
       font-size: 12px;
       margin-top: 6px;
       min-height: 15px;
@@ -1103,7 +1160,7 @@
       width: 100%;
       margin-top: 10px;
       padding: 12px 14px;
-      background: var(--coral);
+      background: var(--green-deep);
       border: none;
       border-radius: var(--radius-sm);
       color: #fff;
@@ -1113,11 +1170,19 @@
       cursor: pointer;
       transition: background 0.15s;
     }
-    .contact-save-btn:hover { background: #c4502d; }
+    .contact-save-btn:hover { background: #2d5a0d; }
 
     /* ── Leaflet overrides ─────────────────────── */
+    /* Satellite imagery is already photographic, not a light vector map —
+       inverting it (as we did for the old street-map tiles) would distort
+       real colors (green forest -> magenta, blue water -> orange), so this
+       is just a gentle dim/boost instead of a hue invert, to feel at home
+       next to the dark UI chrome without breaking the imagery. */
+    .leaflet-tile-pane {
+      filter: brightness(0.85) saturate(1.1);
+    }
     .leaflet-popup-content-wrapper {
-      background: #fff !important;
+      background: var(--cream2) !important;
       color: var(--text) !important;
       border: 1px solid var(--border) !important;
       border-radius: 12px !important;
@@ -1125,12 +1190,19 @@
       font-family: var(--body) !important;
       font-size: 13px !important;
     }
-    .leaflet-popup-tip { background: #fff !important; }
+    .leaflet-popup-tip { background: var(--cream2) !important; }
+    .leaflet-popup-close-button { color: var(--text-mid) !important; }
     .leaflet-control-zoom a {
-      background: #fff !important;
+      background: var(--cream2) !important;
       color: var(--text) !important;
       border-color: var(--border) !important;
     }
+    .leaflet-control-zoom a:hover { background: var(--cream3) !important; }
+    .leaflet-control-attribution {
+      background: rgba(28,30,34,0.75) !important;
+      color: var(--text-soft) !important;
+    }
+    .leaflet-control-attribution a { color: var(--sky) !important; }
 
     /* ── Mobile (<768px) — map dropped entirely, chat is the whole
        screen with SOS/breakdown up top, bigger touch targets ── */
@@ -1502,8 +1574,16 @@ const TYPE_META = {
    MAP SETUP
    ═══════════════════════════════════════════ */
 const map = L.map('map', { zoomControl: false }).setView([20.5937, 78.9629], 5);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap', maxZoom: 18,
+// Satellite imagery (Esri World Imagery, no API key needed) + a transparent
+// labels/roads overlay on top — satellite alone has no place names, so the
+// overlay keeps street/city labels legible against the photo imagery.
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+  attribution: 'Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS community',
+  maxZoom: 19,
+}).addTo(map);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom: 19,
+  pane: 'shadowPane',   // renders above tiles, below markers/popups
 }).addTo(map);
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 
@@ -1561,10 +1641,10 @@ function onLocationReady() {
   const userPin = L.divIcon({
     html: `<div style="
       width:16px;height:16px;
-      background:#d95f3b;
+      background:#97C459;
       border:3px solid #fff;
       border-radius:50%;
-      box-shadow:0 2px 10px rgba(217,95,59,0.45)
+      box-shadow:0 2px 10px rgba(151,196,89,0.5)
     "></div>`,
     className: '', iconAnchor: [8, 8],
   });
@@ -2109,15 +2189,15 @@ function plotMarker(s) {
 
   const EMERGENCY_PHONE_FALLBACK_TYPES = ['hospital', 'ambulance', 'police'];
   const phoneLink = (s.phone && s.phone !== 'N/A')
-    ? `<a href="tel:${s.phone}" style="color:#5a8a6a;font-weight:600;">${s.phone}</a>`
+    ? `<a href="tel:${s.phone}" style="color:var(--sage);font-weight:600;">${s.phone}</a>`
     : (EMERGENCY_PHONE_FALLBACK_TYPES.includes(s.type)
-        ? '<span style="color:#5a8a6a;">Call 108</span>'
-        : '<span style="color:#9c9389;">Number not listed</span>');
+        ? '<span style="color:var(--sage);">Call 108</span>'
+        : '<span style="color:var(--text-soft);">Number not listed</span>');
 
   // Universal Google Maps URL — opens the native Maps app on mobile
   // (Android/iOS), Google Maps web in a new tab on desktop.
   const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}`;
-  const navLink = `<a href="${navUrl}" target="_blank" rel="noopener noreferrer" style="color:#3b7fc4;font-weight:600;text-decoration:none;">🧭 Navigate</a>`;
+  const navLink = `<a href="${navUrl}" target="_blank" rel="noopener noreferrer" style="color:var(--sky);font-weight:600;text-decoration:none;">🧭 Navigate</a>`;
 
   const m = L.marker([s.lat, s.lng], { icon })
     .addTo(map)
@@ -2199,10 +2279,10 @@ function addBot(html, isWarn = false) {
 function addFallback() {
   addBot(`<strong>Can't reach the server right now.</strong><br><br>
     Call these numbers immediately:<br><br>
-    🚑 <a href="tel:108" style="color:var(--coral);font-weight:700;">108</a> — Ambulance<br>
-    👮 <a href="tel:100" style="color:var(--coral);font-weight:700;">100</a> — Police<br>
-    🚒 <a href="tel:101" style="color:var(--coral);font-weight:700;">101</a> — Fire Brigade<br>
-    🛣️ <a href="tel:1073" style="color:var(--coral);font-weight:700;">1073</a> — Road Accident Helpline<br><br>
+    🚑 <a href="tel:108" style="color:var(--coral-soft);font-weight:700;">108</a> — Ambulance<br>
+    👮 <a href="tel:100" style="color:var(--coral-soft);font-weight:700;">100</a> — Police<br>
+    🚒 <a href="tel:101" style="color:var(--coral-soft);font-weight:700;">101</a> — Fire Brigade<br>
+    🛣️ <a href="tel:1073" style="color:var(--coral-soft);font-weight:700;">1073</a> — Road Accident Helpline<br><br>
     <span style="font-size:12px;color:var(--text-soft)">Stay calm. Tell them your location clearly.</span>`,
     true);
 }
