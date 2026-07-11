@@ -754,6 +754,65 @@
     .first-aid-card-body li { margin-bottom: 4px; }
     .first-aid-card-body li:last-child { margin-bottom: 0; }
 
+    /* ── Crash detection overlay ──────────────────
+       Full-screen, above everything (including the First Aid modal) —
+       this is the one moment nothing else should be able to cover it. */
+    #crash-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #E24B4A;
+      z-index: 9999;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      padding: 48px 24px 40px;
+      color: #fff;
+      text-align: center;
+    }
+
+    #crash-overlay.show { display: flex; }
+
+    .crash-top { margin-top: 24px; }
+
+    .crash-message {
+      font-family: var(--display);
+      font-size: 30px;
+      font-weight: 500;
+      line-height: 1.25;
+      text-wrap: balance;
+    }
+
+    .crash-sub {
+      font-size: 15px;
+      opacity: 0.92;
+      margin-top: 12px;
+    }
+
+    .crash-countdown {
+      font-family: var(--display);
+      font-size: 130px;
+      font-weight: 600;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #crash-cancel-btn {
+      width: 100%;
+      max-width: 420px;
+      min-height: 88px;
+      background: #fff;
+      color: #E24B4A;
+      border: none;
+      border-radius: 20px;
+      font-family: var(--display);
+      font-size: 22px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.2);
+    }
+    #crash-cancel-btn:active { transform: scale(0.98); }
+
     /* ── Bottom Bar ────────────────────────────── */
     #bottom {
       flex-shrink: 0;
@@ -949,6 +1008,86 @@
 
     #tts-toggle svg { width: 14px; height: 14px; fill: currentColor; }
 
+    /* Drive Mode toggle — crash-detection listener on/off */
+    #drive-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--cream2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 5px 11px 5px 8px;
+      font-size: 12px;
+      color: var(--text-mid);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      user-select: none;
+    }
+
+    #drive-toggle:hover { background: var(--cream3); }
+
+    #drive-toggle.active {
+      background: var(--coral-bg);
+      border-color: rgba(217,95,59,0.35);
+      color: var(--coral);
+    }
+
+    #drive-edit-btn {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      flex-shrink: 0;
+      background: var(--cream2);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      font-size: 11px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    #drive-edit-btn:hover { background: var(--cream3); }
+
+    /* Emergency contact form (reuses .first-aid-overlay/.first-aid-panel
+       for the modal shell) */
+    .contact-input {
+      width: 100%;
+      margin-top: 12px;
+      padding: 11px 14px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-family: var(--body);
+      font-size: 15px;
+      color: var(--text);
+      outline: none;
+    }
+    .contact-input:focus {
+      border-color: var(--coral-soft);
+      box-shadow: 0 0 0 3px var(--coral-ring);
+    }
+    .contact-error {
+      color: var(--coral);
+      font-size: 12px;
+      margin-top: 6px;
+      min-height: 15px;
+    }
+    .contact-save-btn {
+      width: 100%;
+      margin-top: 10px;
+      padding: 12px 14px;
+      background: var(--coral);
+      border: none;
+      border-radius: var(--radius-sm);
+      color: #fff;
+      font-family: var(--body);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .contact-save-btn:hover { background: #c4502d; }
+
     /* ── Leaflet overrides ─────────────────────── */
     .leaflet-popup-content-wrapper {
       background: #fff !important;
@@ -979,6 +1118,11 @@
       .topbar-actions { gap: 6px; }
       #tts-toggle #tts-label { display: none; }
       #tts-toggle { padding: 7px; }
+      #drive-toggle #drive-toggle-label { display: none; }
+      #drive-toggle { padding: 7px; }
+
+      .crash-message { font-size: 24px; }
+      .crash-countdown { font-size: 96px; }
 
       .status-chip {
         min-width: 0;
@@ -1052,6 +1196,11 @@
       <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
       <span id="tts-label">Voice off</span>
     </div>
+    <div id="drive-toggle" onclick="toggleDriveMode()" title="Enable crash detection while driving">
+      <span>🚗</span>
+      <span id="drive-toggle-label">Drive Mode</span>
+    </div>
+    <button id="drive-edit-btn" onclick="openContactForm()" title="Edit emergency contact">✏️</button>
     <div class="status-chip">
       <div class="chip-dot locating" id="status-dot"></div>
       <span id="status-label">Finding your location…</span>
@@ -1194,6 +1343,30 @@
       </div>
     </div>
   </div>
+</div>
+
+<!-- ── Emergency contact form ─────────────────── -->
+<div id="contact-modal" class="first-aid-overlay" onclick="if (event.target === this) closeContactForm()">
+  <div class="first-aid-panel" style="max-width:360px;">
+    <div class="first-aid-panel-header">
+      <div class="first-aid-panel-title">🚗 Emergency Contact</div>
+      <button class="first-aid-close" onclick="closeContactForm()" aria-label="Close">✕</button>
+    </div>
+    <div class="first-aid-note">If a crash is detected and you don't respond in time, we'll message this number automatically with your location.</div>
+    <input type="tel" id="contact-input" class="contact-input" placeholder="10-digit mobile number" inputmode="numeric">
+    <div id="contact-error" class="contact-error"></div>
+    <button class="contact-save-btn" onclick="saveContact()">Save &amp; Enable Drive Mode</button>
+  </div>
+</div>
+
+<!-- ── Crash detection overlay ─────────────────── -->
+<div id="crash-overlay">
+  <div class="crash-top">
+    <div class="crash-message">🚨 Crash detected — are you OK?</div>
+    <div class="crash-sub">Emergency services will be notified automatically in:</div>
+  </div>
+  <div class="crash-countdown" id="crash-countdown">30</div>
+  <button id="crash-cancel-btn" onclick="cancelCrash()">✅ I'M OK — CANCEL</button>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -2088,6 +2261,259 @@ function toggleFirstAidCard(headerBtn) {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeFirstAid();
+});
+
+/* ═══════════════════════════════════════════
+   CRASH DETECTION / DRIVE MODE  (prototype)
+   Frontend-only: watches devicemotion for a hard-deceleration spike,
+   counts down 30s for the driver to cancel, and if they don't, fires the
+   existing SOS flow + a WhatsApp alert to a saved emergency contact.
+   ═══════════════════════════════════════════ */
+let driveModeOn      = false;
+let emergencyContact = null;   // digits only, session-lifetime JS variable
+let crashReadings    = [];     // timestamps of recent above-threshold spikes
+let crashFlowActive  = false;  // debounce: true while the overlay is up/resolving
+let crashCountdownValue    = 30;
+let crashCountdownInterval = null;
+let alarmAudioCtx  = null;
+let alarmIntervalId = null;
+
+const CRASH_THRESHOLD = 40; // m/s² — configurable
+const CRASH_WINDOW_MS = 300; // 2 readings must land within this window
+
+// ── Drive Mode on/off ────────────────────────
+async function toggleDriveMode() {
+  if (driveModeOn) {
+    disableDriveMode();
+    return;
+  }
+
+  // iOS requires requestPermission() to be called directly from a user
+  // gesture — this handler IS that gesture, so this must happen first,
+  // before any other async detour (like the contact form).
+  const granted = await requestMotionPermission();
+  if (!granted) {
+    addBot('⚠️ Motion access is required for Drive Mode crash detection. Please allow it in your browser settings and try again.');
+    return;
+  }
+
+  if (!emergencyContact) {
+    openContactForm();   // finalizeEnableDriveMode() runs on save
+  } else {
+    finalizeEnableDriveMode();
+  }
+}
+
+async function requestMotionPermission() {
+  try {
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+      const result = await DeviceMotionEvent.requestPermission();
+      return result === 'granted';
+    }
+    return true; // Android/desktop browsers don't gate motion behind a permission prompt
+  } catch (err) {
+    console.warn('[DriveMode] motion permission request failed:', err);
+    return false;
+  }
+}
+
+function finalizeEnableDriveMode() {
+  driveModeOn = true;
+  crashReadings = [];
+  window.addEventListener('devicemotion', handleDeviceMotion);
+  document.getElementById('drive-toggle').classList.add('active');
+  document.getElementById('drive-toggle-label').textContent = 'Drive Mode ON';
+  document.getElementById('drive-edit-btn').style.display = 'flex';
+}
+
+function disableDriveMode() {
+  driveModeOn = false;
+  window.removeEventListener('devicemotion', handleDeviceMotion);
+  crashReadings = [];
+  document.getElementById('drive-toggle').classList.remove('active');
+  document.getElementById('drive-toggle-label').textContent = 'Drive Mode';
+  document.getElementById('drive-edit-btn').style.display = 'none';
+}
+
+// ── Emergency contact form ───────────────────
+function openContactForm() {
+  document.getElementById('contact-input').value = emergencyContact || '';
+  document.getElementById('contact-error').textContent = '';
+  document.getElementById('contact-modal').classList.add('show');
+  document.getElementById('contact-input').focus();
+}
+
+function closeContactForm() {
+  document.getElementById('contact-modal').classList.remove('show');
+}
+
+function saveContact() {
+  const raw = document.getElementById('contact-input').value.trim();
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length < 10) {
+    document.getElementById('contact-error').textContent = 'Enter a valid phone number (10+ digits).';
+    return;
+  }
+  emergencyContact = digits;
+  closeContactForm();
+  if (!driveModeOn) finalizeEnableDriveMode();
+}
+
+// ── Crash detection ───────────────────────────
+function handleDeviceMotion(e) {
+  if (crashFlowActive) return; // already showing/resolving — ignore new spikes
+
+  let mag = null;
+  if (e.acceleration && e.acceleration.x != null) {
+    const { x, y, z } = e.acceleration;
+    mag = Math.sqrt(x * x + y * y + z * z);
+  } else if (e.accelerationIncludingGravity && e.accelerationIncludingGravity.x != null) {
+    // No gravity-free reading available — approximate by subtracting
+    // standard gravity from the combined magnitude.
+    const { x, y, z } = e.accelerationIncludingGravity;
+    mag = Math.abs(Math.sqrt(x * x + y * y + z * z) - 9.8);
+  } else {
+    return;
+  }
+
+  const now = Date.now();
+  if (mag >= CRASH_THRESHOLD) {
+    crashReadings.push(now);
+  }
+  crashReadings = crashReadings.filter(t => now - t <= CRASH_WINDOW_MS);
+
+  // Require 2 consecutive above-threshold readings within the window —
+  // filters out a single phone-drop spike from a genuine crash pattern.
+  if (crashReadings.length >= 2) {
+    crashReadings = [];
+    triggerCrashFlow();
+  }
+}
+
+function triggerCrashFlow() {
+  if (crashFlowActive) return;
+  crashFlowActive = true;
+  crashCountdownValue = 30;
+  document.getElementById('crash-countdown').textContent = crashCountdownValue;
+  document.getElementById('crash-overlay').classList.add('show');
+
+  startAlarm();
+  if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
+
+  crashCountdownInterval = setInterval(() => {
+    crashCountdownValue--;
+    document.getElementById('crash-countdown').textContent = crashCountdownValue;
+    if (crashCountdownValue <= 0) {
+      clearInterval(crashCountdownInterval);
+      crashCountdownInterval = null;
+      onCrashCountdownZero();
+    }
+  }, 1000);
+}
+
+function cancelCrash() {
+  stopAlarm();
+  if (crashCountdownInterval) {
+    clearInterval(crashCountdownInterval);
+    crashCountdownInterval = null;
+  }
+  document.getElementById('crash-overlay').classList.remove('show');
+  crashFlowActive = false;
+  crashReadings = [];
+}
+
+async function onCrashCountdownZero() {
+  stopAlarm();
+  document.getElementById('crash-overlay').classList.remove('show');
+
+  if (userLat != null && userLng != null) {
+    await triggerSOS();
+  } else {
+    addBot('⚠️ Crash alert triggered, but your location is not available yet.');
+  }
+
+  if (emergencyContact && userLat != null && userLng != null) {
+    const mapsLink = `https://www.google.com/maps?q=${userLat},${userLng}`;
+    const message = `🚨 AUTOMATIC CRASH ALERT from Roadent. A possible accident was detected and the driver did not respond. Location: ${mapsLink}. Please check on them or call emergency services.`;
+    const waUrl = `https://wa.me/91${emergencyContact}?text=${encodeURIComponent(message)}`;
+    const opened = window.open(waUrl, '_blank');
+    // Browsers commonly block window.open() when it isn't triggered by a
+    // direct user gesture — this call happens automatically after a 30s
+    // countdown, so there's no gesture to point to. If that happened here,
+    // surface a tappable fallback so the alert isn't silently lost.
+    if (!opened) {
+      addBot(`⚠️ Your browser blocked the automatic WhatsApp alert. <a href="${waUrl}" target="_blank" rel="noopener noreferrer" style="color:var(--coral);font-weight:700;">Tap here to send it to your emergency contact</a>.`, true);
+    }
+  }
+
+  const nearestHospital = lastKnownServices.find(s => s.type === 'hospital');
+  const announceText = nearestHospital
+    ? `Emergency services information is on screen. Nearest hospital is ${nearestHospital.name}.`
+    : 'Emergency services information is on screen.';
+  announceCrash(announceText);
+
+  crashFlowActive = false;
+}
+
+// Bypasses the ttsEnabled toggle deliberately — this is the automatic
+// escalation path (the driver didn't respond), so the announcement should
+// always be audible, not gated behind a preference set for casual chat use.
+function announceCrash(text) {
+  if (!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = 'en-IN';
+  utter.rate = 0.92;
+  window.speechSynthesis.speak(utter);
+}
+
+// ── Alarm — repeating ~880Hz beep pulses via Web Audio API (no audio file) ──
+function startAlarm() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    alarmAudioCtx = new Ctx();
+    playBeepPulse();
+    alarmIntervalId = setInterval(playBeepPulse, 1000);
+  } catch (err) {
+    console.warn('[CrashAlarm] Web Audio unavailable:', err);
+  }
+}
+
+function playBeepPulse() {
+  if (!alarmAudioCtx) return;
+  const osc  = alarmAudioCtx.createOscillator();
+  const gain = alarmAudioCtx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = 880;
+  gain.gain.setValueAtTime(0.3, alarmAudioCtx.currentTime);
+  osc.connect(gain);
+  gain.connect(alarmAudioCtx.destination);
+  osc.start();
+  osc.stop(alarmAudioCtx.currentTime + 0.4);
+}
+
+function stopAlarm() {
+  if (alarmIntervalId) {
+    clearInterval(alarmIntervalId);
+    alarmIntervalId = null;
+  }
+  if (alarmAudioCtx) {
+    alarmAudioCtx.close().catch(() => {});
+    alarmAudioCtx = null;
+  }
+}
+
+// ── Simulate trigger (demo insurance) — triple-tap the logo within 1.5s.
+// Deliberately no visual hint: no cursor change, no hover state, nothing
+// in the DOM marking it as interactive.
+let logoTapTimes = [];
+document.querySelector('.logo').addEventListener('click', () => {
+  const now = Date.now();
+  logoTapTimes = [...logoTapTimes, now].filter(t => now - t <= 1500);
+  if (logoTapTimes.length >= 3) {
+    logoTapTimes = [];
+    triggerCrashFlow();
+  }
 });
 
 /* ═══════════════════════════════════════════
