@@ -1531,7 +1531,7 @@
     <div class="crash-message">🚨 Crash detected — are you OK?</div>
     <div class="crash-sub">Emergency services will be notified automatically in:</div>
   </div>
-  <div class="crash-countdown" id="crash-countdown">30</div>
+  <div class="crash-countdown" id="crash-countdown">10</div>
   <button id="crash-cancel-btn" onclick="cancelCrash()">✅ I'M OK — CANCEL</button>
 </div>
 
@@ -2496,21 +2496,46 @@ document.addEventListener('keydown', e => {
 /* ═══════════════════════════════════════════
    CRASH DETECTION / DRIVE MODE  (prototype)
    Frontend-only: watches devicemotion for a hard-deceleration spike,
-   counts down 30s for the driver to cancel, and if they don't, fires the
-   existing SOS flow + a WhatsApp alert to a saved emergency contact.
+   counts down CRASH_COUNTDOWN_SECONDS for the driver to cancel, and if
+   they don't, hands off to the bystander screen. Both the real
+   motion-detection path (handleDeviceMotion) and the triple-tap demo
+   trigger call the SAME triggerCrashFlow() with no arguments — one
+   countdown value, one alarm/TTS implementation, nothing to drift apart.
    ═══════════════════════════════════════════ */
 let driveModeOn      = false;
 let emergencyContact = null;   // digits only, session-lifetime JS variable
 let crashReadings    = [];     // timestamps of recent above-threshold spikes
 let crashFlowActive  = false;  // debounce: true while the overlay is up/resolving
-let crashCountdownValue    = 30;
+let crashCountdownValue    = 0;
 let crashCountdownInterval = null;
 let alarmAudioCtx  = null;
 let alarmIntervalId = null;
-let bystanderTtsInterval = null;   // repeats the TTS announcement every ~12s until dismissed
+let bystanderTtsInterval = null;      // repeats the TTS announcement every ~12s until dismissed
+let bystanderResumeInterval = null;   // periodic speechSynthesis.resume() nudge — some mobile engines (Android Chrome) silently pause the queue after a period of inactivity
+let bystanderGeneration = 0;          // bumped on every start AND stop, so a stale async callback (an in-flight retry, an interval tick that fired right as dismiss ran) can tell it's been superseded and skip speaking
 
 const CRASH_THRESHOLD = 40; // m/s² — configurable
 const CRASH_WINDOW_MS = 300; // 2 readings must land within this window
+const CRASH_COUNTDOWN_SECONDS = 10;
+
+// Mobile browsers (notably iOS Safari) restrict speechSynthesis.speak()
+// to calls made within a direct user-gesture call stack — a devicemotion
+// event never qualifies, so a REAL crash's announcement (fired later,
+// entirely from timers) would otherwise be silently dropped on those
+// browsers with no error to show for it. Speaking a near-silent utterance
+// here, synchronously inside a real tap, unlocks the engine for the rest
+// of this page's lifetime — the same pattern used to unlock autoplay
+// audio/video. Enabling Drive Mode is the only gesture available before
+// a real crash, so that's where this has to happen; the triple-tap demo
+// primes again on its own in case Drive Mode was never turned on.
+let speechPrimed = false;
+function primeSpeechSynthesis() {
+  if (speechPrimed || !window.speechSynthesis) return;
+  speechPrimed = true;
+  const utter = new SpeechSynthesisUtterance(' ');
+  utter.volume = 0;
+  window.speechSynthesis.speak(utter);
+}
 
 // ── Drive Mode on/off ────────────────────────
 async function toggleDriveMode() {
@@ -2518,6 +2543,8 @@ async function toggleDriveMode() {
     disableDriveMode();
     return;
   }
+
+  primeSpeechSynthesis();
 
   // iOS requires requestPermission() to be called directly from a user
   // gesture — this handler IS that gesture, so this must happen first,
@@ -2621,10 +2648,10 @@ function handleDeviceMotion(e) {
   }
 }
 
-function triggerCrashFlow(seconds = 30) {
+function triggerCrashFlow() {
   if (crashFlowActive) return;
   crashFlowActive = true;
-  crashCountdownValue = seconds;
+  crashCountdownValue = CRASH_COUNTDOWN_SECONDS;
   document.getElementById('crash-countdown').textContent = crashCountdownValue;
   document.getElementById('crash-overlay').classList.add('show');
 
@@ -2745,26 +2772,46 @@ function updateBystanderHospital() {
 }
 
 function startBystanderTts() {
+  const myGeneration = ++bystanderGeneration;
+
   // Re-checks lastKnownServices on every tick (rather than a snapshot taken
   // once at start) so the announcement upgrades itself from the generic
   // line to the hospital-specific one as soon as the SOS fetch resolves,
   // with no extra wiring needed between the two async operations.
   const say = () => {
+    if (myGeneration !== bystanderGeneration) return;   // superseded — dead, don't speak
     const nearestHospital = lastKnownServices.find(s => s.type === 'hospital');
     announceCrash(
       nearestHospital
         ? `Emergency. Crash detected. Nearest hospital is ${nearestHospital.name}, ${nearestHospital.distance_km} kilometres away. Please call one zero eight.`
-        : 'Emergency. Crash detected. Please call one zero eight.'
+        : 'Emergency. Crash detected. Please call one zero eight.',
+      myGeneration
     );
   };
   say();
   bystanderTtsInterval = setInterval(say, 12000);
+
+  // Some mobile engines (Android Chrome in particular) silently pause the
+  // speech queue after a stretch of inactivity between utterances — a
+  // periodic resume() is a harmless no-op everywhere else, but keeps
+  // those engines from going quiet mid-loop.
+  bystanderResumeInterval = setInterval(() => {
+    if (window.speechSynthesis) window.speechSynthesis.resume();
+  }, 4000);
 }
 
 function stopBystanderTts() {
+  // Bump FIRST — invalidates any in-flight retry (announceCrash's onerror
+  // handler) or an interval tick that fired the instant before clearInterval
+  // landed, so nothing tagged with the old generation can speak after this.
+  bystanderGeneration++;
   if (bystanderTtsInterval) {
     clearInterval(bystanderTtsInterval);
     bystanderTtsInterval = null;
+  }
+  if (bystanderResumeInterval) {
+    clearInterval(bystanderResumeInterval);
+    bystanderResumeInterval = null;
   }
   if (window.speechSynthesis) window.speechSynthesis.cancel();
 }
@@ -2783,12 +2830,31 @@ function dismissBystanderScreen() {
 // Bypasses the ttsEnabled toggle deliberately — this is the automatic
 // escalation path (the driver didn't respond), so the announcement should
 // always be audible, not gated behind a preference set for casual chat use.
-function announceCrash(text) {
+//
+// Diagnosed directly, not assumed: the Web Audio alarm oscillator does NOT
+// interfere with this — confirmed via isolated testing with the alarm both
+// on and off. The cancel()-before-speak() ordering here is correct and
+// necessary. Two real issues found on top of that: (1) a normal chat reply
+// arriving mid-announcement used to call the general speak() below, which
+// cancelled whatever was speaking — fixed in speak() itself (see its
+// comment); (2) the underlying Web Speech API can fail to complete an
+// utterance for reasons outside this app's control — the bounded retry
+// here (max 2 attempts) is a safety net for that, gated by `generation` so
+// a stale retry can never fire after a newer announcement, a dismiss, or
+// a button tap has already taken over.
+function announceCrash(text, generation, retriesLeft = 2) {
   if (!window.speechSynthesis) return;
   window.speechSynthesis.cancel();
   const utter = new SpeechSynthesisUtterance(text);
   utter.lang = 'en-IN';
   utter.rate = 0.92;
+  utter.onerror = () => {
+    if (retriesLeft > 0 && generation === bystanderGeneration) {
+      setTimeout(() => {
+        if (generation === bystanderGeneration) announceCrash(text, generation, retriesLeft - 1);
+      }, 400);
+    }
+  };
   window.speechSynthesis.speak(utter);
 }
 
@@ -2830,17 +2896,19 @@ function stopAlarm() {
 
 // ── Simulate trigger (demo insurance) — triple-tap the logo within 1.5s.
 // Deliberately no visual hint: no cursor change, no hover state, nothing
-// in the DOM marking it as interactive. Uses a short 5s countdown (real
-// motion-triggered crashes still get the full 30s) so the whole flow —
-// countdown, alarm, bystander screen, looping TTS — can be demoed
-// end-to-end in seconds instead of waiting out a real crash's grace period.
+// in the DOM marking it as interactive. Calls the exact same
+// triggerCrashFlow() the real motion-detection path uses — same
+// CRASH_COUNTDOWN_SECONDS, same alarm, same bystander screen — so this
+// demo path is a faithful preview of the real thing, not a stand-in that
+// can quietly drift out of sync with it.
 let logoTapTimes = [];
 document.querySelector('.logo').addEventListener('click', () => {
   const now = Date.now();
   logoTapTimes = [...logoTapTimes, now].filter(t => now - t <= 1500);
+  primeSpeechSynthesis();   // harmless if Drive Mode already primed it — covers the demo path on its own otherwise
   if (logoTapTimes.length >= 3) {
     logoTapTimes = [];
-    triggerCrashFlow(5);
+    triggerCrashFlow();
   }
 });
 
@@ -2872,6 +2940,13 @@ function toggleTTS() {
 
 function speak(text) {
   if (!ttsEnabled || !window.speechSynthesis) return;
+  // The bystander screen's own announcement loop owns the audio channel —
+  // a normal chat reply arriving mid-crash (e.g. the AI narration that
+  // triggerSOS() fetches in the background) would otherwise call cancel()
+  // here and cut the crash announcement off mid-sentence to speak itself
+  // instead. Diagnosed via direct testing: this is a real collision, not
+  // a hypothetical one.
+  if (bystanderTtsInterval) return;
 
   // Cancel any current speech before starting new
   window.speechSynthesis.cancel();
