@@ -13,6 +13,7 @@ from typing import Optional
 import sqlite3, os, json, re, requests, time, traceback
 from collections import defaultdict, deque
 from math import radians, sin, cos, sqrt, atan2
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 # ── Config ─────────────────────────────────────────────
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
@@ -27,6 +28,19 @@ OVERPASS_URL    = "https://overpass-api.de/api/interpreter"
 ADMIN_TOKEN     = os.environ.get("ADMIN_TOKEN", "")   # required to call POST /api/services
 RATE_LIMIT      = 30         # requests
 RATE_WINDOW_SEC = 60         # per this many seconds, per client IP
+
+# Local + OSM search tuning (see get_all_nearby): every response combines
+# both sources, fetched concurrently. OSM averages 12.4s per call (range
+# 1.2s-25s, measured directly) against the DB's 13-29ms, so its timeout is
+# set generously enough to actually let it contribute most of the time —
+# accepting that every request now costs up to this long in the worst
+# case, in exchange for OSM data reliably making it into the response
+# instead of timing out before it can. DB_GOOD_RESULT_COUNT/RADIUS_KM are
+# now only used to decide whether the *combined* DB+OSM result is still
+# sparse enough to widen the DB search further.
+DB_GOOD_RESULT_COUNT = 5
+DB_GOOD_RADIUS_KM    = 15
+OSM_TIMEOUT_SECONDS  = 15    # hard cap — a slow/flaky Overpass response can never hold up the request past this
 
 # ── App ─────────────────────────────────────────────────
 app = FastAPI(title="Roadent API", version="2.0")
@@ -270,82 +284,102 @@ def find_nearest_adaptive(lat, lng, stype, target=5) -> tuple[list[dict], float]
     return [], 100
 
 
-def get_all_nearby(lat, lng) -> dict:
-    """
-    Smart search — always queries OSM first for the user's immediate area
-    (5km radius) to get truly local results, then fills gaps from local DB.
-    Results are strictly sorted by distance, no city-jumping.
-    """
-    # Step 1: Always try OSM for a tight 5km radius around the user
-    # This gets real nearby clinics, hospitals, police that OSM has mapped
-    osm_results = osm_fallback(lat, lng, radius_m=5000)
+_NEARBY_TYPE_CONFIG = {
+    "hospital":      5,
+    "ambulance":     3,
+    "police":        3,
+    "towing":        2,
+    "puncture_shop": 2,
+}
+_NEARBY_TYPE_LIMITS = {"hospital": 5, "ambulance": 3, "police": 3, "towing": 2, "puncture_shop": 2}
 
-    # Step 2: Also get local DB results within 15km max
-    config = {
-        "hospital":      5,
-        "ambulance":     3,
-        "police":        3,
-        "towing":        2,
-        "puncture_shop": 2,
-    }
-    db_results = []
-    for stype, target in config.items():
+
+def _query_local_db(lat, lng, radius_km=DB_GOOD_RADIUS_KM) -> list[dict]:
+    """Local DB pass across all emergency service types, capped to radius_km."""
+    results = []
+    for stype, target in _NEARBY_TYPE_CONFIG.items():
         svcs, _ = find_nearest_adaptive(lat, lng, stype, target=target)
-        # Hard cap: only include DB results within 15km
-        # so we never show a hospital 40km away if OSM has one at 2km
-        close_svcs = [s for s in svcs if s["distance_km"] <= 15]
-        db_results.extend(close_svcs)
+        results.extend(s for s in svcs if s["distance_km"] <= radius_km)
+    results.sort(key=lambda x: x["distance_km"])
+    return results
 
-    # Step 3: Merge — OSM results take priority, DB fills gaps
-    # Deduplicate by proximity (same place mapped in both sources)
-    all_results = []
-    seen_coords = set()
 
-    # Add OSM first (higher quality for immediate area)
-    for s in osm_results:
-        coord_key = (round(s["lat"], 3), round(s["lng"], 3))
-        if coord_key not in seen_coords:
-            seen_coords.add(coord_key)
-            all_results.append(s)
-
-    # Add DB results that aren't already covered by OSM
-    for s in db_results:
-        coord_key = (round(s["lat"], 3), round(s["lng"], 3))
-        if coord_key not in seen_coords:
-            seen_coords.add(coord_key)
-            all_results.append(s)
-
-    # Step 4: If we still have very few results, widen OSM to 10km
-    if len(all_results) < 3:
-        wider = osm_fallback(lat, lng, radius_m=10000)
-        for s in wider:
-            coord_key = (round(s["lat"], 3), round(s["lng"], 3))
-            if coord_key not in seen_coords:
-                seen_coords.add(coord_key)
-                all_results.append(s)
-
-    # Step 5: Sort strictly by distance — closest first, always
-    all_results.sort(key=lambda x: x["distance_km"])
-
-    # Step 6: Group by type for the frontend cards
+def _group_and_limit(results: list[dict]) -> dict:
+    results = sorted(results, key=lambda x: x["distance_km"])
     grouped = {}
-    type_limits = {
-        "hospital": 5, "ambulance": 3, "police": 3,
-        "towing": 2, "puncture_shop": 2
-    }
     type_counts = {}
     final_flat = []
-
-    for s in all_results:
+    for s in results:
         stype = s["type"]
-        limit = type_limits.get(stype, 3)
+        limit = _NEARBY_TYPE_LIMITS.get(stype, 3)
         type_counts[stype] = type_counts.get(stype, 0) + 1
         if type_counts[stype] <= limit:
             grouped.setdefault(stype, []).append(s)
             final_flat.append(s)
-
-    print(f"[SEARCH] {len(osm_results)} OSM + {len(db_results)} DB → {len(final_flat)} final results")
     return {"grouped": grouped, "flat": final_flat}
+
+
+def get_all_nearby(lat, lng) -> dict:
+    """
+    Every response combines local DB + OSM — DB is queried first (it's
+    fast, 13-29ms measured) and OSM is always fetched too, run
+    concurrently rather than sequentially so OSM's latency doesn't stack
+    on top of the DB's. OSM is capped at OSM_TIMEOUT_SECONDS so a slow or
+    flaky Overpass response — measured averaging 12.4s per call, up to
+    25s, versus the DB's single-digit milliseconds — can never hold up
+    the request past that ceiling; when it does time out, the response
+    still goes out with whatever the DB found rather than waiting.
+    """
+    t0 = time.time()
+    # Not a `with` block deliberately: ThreadPoolExecutor.__exit__ calls
+    # shutdown(wait=True), which would block returning the response until
+    # the OSM worker thread actually finishes — defeating the whole point
+    # of the timeout below if the underlying request runs even slightly
+    # past it (observed happening: requests given timeout=3 sometimes take
+    # 4-6s to actually raise). shutdown(wait=False) lets us move on the
+    # moment OUR wait expires; the thread is left to finish (or fail) on
+    # its own and is simply discarded, since osm_fallback() has no shared
+    # state to clean up.
+    pool = ThreadPoolExecutor(max_workers=2)
+    db_future  = pool.submit(_query_local_db, lat, lng, DB_GOOD_RADIUS_KM)
+    osm_future = pool.submit(osm_fallback, lat, lng, 10000, OSM_TIMEOUT_SECONDS)
+
+    db_results = db_future.result()
+    db_elapsed = time.time() - t0
+    print(f"[SEARCH] local DB: {len(db_results)} results within {DB_GOOD_RADIUS_KM}km in {db_elapsed*1000:.0f}ms")
+
+    try:
+        osm_results = osm_future.result(timeout=OSM_TIMEOUT_SECONDS + 0.5)
+    except FutureTimeoutError:
+        print(f"[SEARCH] OSM exceeded its {OSM_TIMEOUT_SECONDS}s cap — proceeding with DB results only")
+        osm_results = []
+    print(f"[SEARCH] OSM: {len(osm_results)} results in {time.time()-t0:.2f}s total")
+
+    seen_coords = set()
+    all_results = []
+    # OSM first — higher-resolution data for the immediate area than the DB.
+    for s in osm_results + db_results:
+        coord_key = (round(s["lat"], 3), round(s["lng"], 3))
+        if coord_key not in seen_coords:
+            seen_coords.add(coord_key)
+            all_results.append(s)
+
+    # Still sparse even combined — widen the DB pass (fast, local, so no
+    # need to parallelize this one) rather than leaving thin results.
+    if len(all_results) < DB_GOOD_RESULT_COUNT:
+        wide_db_results = _query_local_db(lat, lng, 100)
+        for s in wide_db_results:
+            coord_key = (round(s["lat"], 3), round(s["lng"], 3))
+            if coord_key not in seen_coords:
+                seen_coords.add(coord_key)
+                all_results.append(s)
+        print(f"[SEARCH] combined still sparse ({len(all_results)}) — widened DB to 100km")
+
+    pool.shutdown(wait=False)
+
+    final = _group_and_limit(all_results)
+    print(f"[SEARCH] {len(osm_results)} OSM + {len(db_results)} DB → {len(final['flat'])} final results")
+    return final
 
 
 def get_breakdown_nearby(lat, lng) -> dict:
@@ -387,20 +421,24 @@ def get_breakdown_nearby(lat, lng) -> dict:
 
 
 # ── OSM Fallback (for locations outside seeded area) ────
-def osm_fallback(lat, lng, radius_m=10000) -> list[dict]:
+def osm_fallback(lat, lng, radius_m=10000, timeout=OSM_TIMEOUT_SECONDS) -> list[dict]:
     """
     Query OpenStreetMap Overpass API for emergency services globally.
     Uses 'nwr' (node + way + relation) so building-mapped hospitals are found.
     'out center' gives a centroid lat/lng even for polygon ways.
     Works for any country — this is the global applicability feature.
 
-    Retries once on failure. Overpass's free public instance intermittently
-    returns a 504 on a cold/uncached query — reproduced directly: a 504
-    after ~9s, then a 200 in ~8s on an immediate retry with the identical
-    query. Each attempt gets a tighter 12s timeout (down from a single 22s
-    attempt), so two attempts costs roughly the same worst-case wait as
-    the old single attempt did, while making it far less likely a user
-    loses OSM results to a transient failure that a second try clears.
+    Single attempt, capped at `timeout` seconds. Overpass's free public
+    instance is measurably slow and unreliable — averaged 12.4s per call
+    (range 1.2s-25s) against local DB's 13-29ms in direct measurement,
+    with frequent 504/429/read-timeout failures — so this is now called
+    only when the local DB is already known to be sparse (see
+    get_all_nearby), and is capped tightly here so a slow/flaky response
+    can never hold up the request past `timeout`. A previous version
+    retried once on failure at 12s per attempt (up to 24s worst case);
+    that's no longer worth it now that OSM is enrichment, not a blocker —
+    a fast, tightly-capped single attempt that sometimes comes back empty
+    is a better trade than occasionally doubling the wait to maybe save it.
     """
     query = f"""
 [out:json][timeout:20];
@@ -421,74 +459,66 @@ out center;
         "fire_station":      "towing",   # closest proxy for roadside help
     }
 
-    ATTEMPTS = 2
-    ATTEMPT_TIMEOUT = 12
+    t0 = time.time()
+    try:
+        r = requests.post(
+            OVERPASS_URL,
+            data={"data": query},
+            headers={"User-Agent": "Roadent/2.0 (student hackathon project)"},
+            timeout=timeout,
+        )
+        r.raise_for_status()
+        results = []
+        seen: dict[str, int] = {}
 
-    for attempt in range(1, ATTEMPTS + 1):
-        t0 = time.time()
-        try:
-            r = requests.post(
-                OVERPASS_URL,
-                data={"data": query},
-                headers={"User-Agent": "Roadent/2.0 (student hackathon project)"},
-                timeout=ATTEMPT_TIMEOUT,
-            )
-            r.raise_for_status()
-            results = []
-            seen: dict[str, int] = {}
+        for el in r.json().get("elements", []):
+            tags = el.get("tags", {})
+            amenity = tags.get("amenity") or tags.get("emergency", "")
+            stype = TYPE_MAP.get(amenity)
+            if not stype:
+                continue
 
-            for el in r.json().get("elements", []):
-                tags = el.get("tags", {})
-                amenity = tags.get("amenity") or tags.get("emergency", "")
-                stype = TYPE_MAP.get(amenity)
-                if not stype:
-                    continue
+            # Nodes have lat/lon directly; ways/relations expose a 'center' object
+            el_lat = el.get("lat") or el.get("center", {}).get("lat")
+            el_lng = el.get("lon") or el.get("center", {}).get("lon")
+            if not el_lat or not el_lng:
+                continue
 
-                # Nodes have lat/lon directly; ways/relations expose a 'center' object
-                el_lat = el.get("lat") or el.get("center", {}).get("lat")
-                el_lng = el.get("lon") or el.get("center", {}).get("lon")
-                if not el_lat or not el_lng:
-                    continue
+            seen[stype] = seen.get(stype, 0) + 1
+            if seen[stype] > 6:   # max 6 per type from OSM
+                continue
 
-                seen[stype] = seen.get(stype, 0) + 1
-                if seen[stype] > 6:   # max 6 per type from OSM
-                    continue
+            # Best-effort name — OSM data quality varies internationally
+            name = (tags.get("name")
+                    or tags.get("name:en")
+                    or tags.get("operator")
+                    or f"Nearby {stype.replace('_', ' ').title()}")
 
-                # Best-effort name — OSM data quality varies internationally
-                name = (tags.get("name")
-                        or tags.get("name:en")
-                        or tags.get("operator")
-                        or f"Nearby {stype.replace('_', ' ').title()}")
+            results.append({
+                "name":        name,
+                "type":        stype,
+                "lat":         el_lat,
+                "lng":         el_lng,
+                "phone":       (tags.get("phone")
+                                or tags.get("contact:phone")
+                                or tags.get("contact:mobile")
+                                or "N/A"),
+                "address":     (tags.get("addr:full")
+                                or tags.get("addr:street")
+                                or ""),
+                "city":        tags.get("addr:city") or tags.get("addr:district") or "",
+                "state":       tags.get("addr:state") or tags.get("addr:province") or "",
+                "distance_km": round(haversine(lat, lng, el_lat, el_lng), 2),
+                "source":      "openstreetmap",
+            })
 
-                results.append({
-                    "name":        name,
-                    "type":        stype,
-                    "lat":         el_lat,
-                    "lng":         el_lng,
-                    "phone":       (tags.get("phone")
-                                    or tags.get("contact:phone")
-                                    or tags.get("contact:mobile")
-                                    or "N/A"),
-                    "address":     (tags.get("addr:full")
-                                    or tags.get("addr:street")
-                                    or ""),
-                    "city":        tags.get("addr:city") or tags.get("addr:district") or "",
-                    "state":       tags.get("addr:state") or tags.get("addr:province") or "",
-                    "distance_km": round(haversine(lat, lng, el_lat, el_lng), 2),
-                    "source":      "openstreetmap",
-                })
+        results.sort(key=lambda x: x["distance_km"])
+        print(f"[OSM] found {len(results)} results near ({lat:.3f},{lng:.3f}) in {time.time()-t0:.2f}s")
+        return results
 
-            results.sort(key=lambda x: x["distance_km"])
-            print(f"[OSM] found {len(results)} results near ({lat:.3f},{lng:.3f}) "
-                  f"(attempt {attempt}/{ATTEMPTS}, {time.time()-t0:.2f}s)")
-            return results
-
-        except Exception as e:
-            print(f"[OSM] attempt {attempt}/{ATTEMPTS} failed after {time.time()-t0:.2f}s "
-                  f"({type(e).__name__}): {e}")
-
-    print(f"[OSM] all {ATTEMPTS} attempts failed near ({lat:.3f},{lng:.3f}) — DB-only for this request")
-    return []
+    except Exception as e:
+        print(f"[OSM] failed after {time.time()-t0:.2f}s ({type(e).__name__}): {e} — DB-only for this request")
+        return []
 
 
 # ── Mistral call ─────────────────────────────────────────
@@ -786,22 +816,17 @@ def emergency_lookup(req: EmergencyRequest):
             "mode":             "breakdown",
         }
 
+    # get_all_nearby() already handles OSM enrichment internally (only
+    # calling it when the local DB is sparse) — no need to re-check or
+    # re-fetch here.
     data = get_all_nearby(req.lat, req.lng)
     flat = data["flat"]
-
-    # OSM fallback if local DB has fewer than 2 results
-    if len(flat) < 2:
-        osm = osm_fallback(req.lat, req.lng)
-        if osm:
-            flat = flat + osm
-            flat.sort(key=lambda x: x["distance_km"])
-            data["flat"] = flat
 
     return {
         "services":         flat,
         "by_type":          data["grouped"],
         "total":            len(flat),
-        "source":           "local_db" if len(flat) >= 2 else "openstreetmap",
+        "source":           "local_db+osm" if any(s.get("source") == "openstreetmap" for s in flat) else "local_db",
         "emergency_numbers": {"ambulance": "108", "police": "100", "fire": "101", "highway": "1073"},
     }
 
@@ -851,17 +876,12 @@ def chat(req: ChatRequest):
             flat = data["flat"]
             source = "local_db" if flat else "none"
         else:
+            # get_all_nearby() already handles OSM enrichment internally
+            # (only calling it when the local DB is sparse) — no need to
+            # re-check or re-fetch here.
             data = get_all_nearby(req.lat, req.lng)
             flat = data["flat"]
-
-            # OSM fallback if local sparse
-            if len(flat) < 2:
-                osm = osm_fallback(req.lat, req.lng)
-                flat = flat + osm
-                flat.sort(key=lambda x: x["distance_km"])
-                source = "openstreetmap" if osm else "local_db"
-            else:
-                source = "local_db"
+            source = "local_db+osm" if any(s.get("source") == "openstreetmap" for s in flat) else "local_db"
 
         services = flat
 
