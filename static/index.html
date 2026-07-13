@@ -623,33 +623,6 @@
     }
     .whatsapp-btn:active { transform: translateY(0); }
 
-    /* Crash-alert action buttons — the always-on-screen "call / message"
-       pair shown when the countdown hits zero. Neither action can happen
-       without a tap (browsers block silent calls/sends), so these are
-       styled to be impossible to miss rather than being a quiet fallback. */
-    .crash-action-btn {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      width: 100%;
-      margin-top: 10px;
-      padding: 14px;
-      border-radius: var(--radius-sm);
-      font-family: var(--body);
-      font-size: 14.5px;
-      font-weight: 700;
-      text-decoration: none;
-      color: #fff;
-      cursor: pointer;
-      transition: background 0.15s, transform 0.1s;
-    }
-    .crash-action-btn:active { transform: scale(0.98); }
-    .crash-action-btn.call { background: var(--coral); }
-    .crash-action-btn.call:hover { background: #c23d3c; }
-    .crash-action-btn.whatsapp { background: #25D366; }
-    .crash-action-btn.whatsapp:hover { background: #20bd5a; }
-
     /* Typing indicator */
     .typing-row { display: flex; gap: 5px; align-items: center; padding: 4px 2px; }
     .typing-row span {
@@ -859,6 +832,118 @@
       box-shadow: 0 6px 24px rgba(0,0,0,0.2);
     }
     #crash-cancel-btn:active { transform: scale(0.98); }
+
+    /* ── Bystander screen ─────────────────────────
+       Replaces #crash-overlay once the countdown hits zero. Written for
+       whoever finds the phone, not the driver — the alarm and TTS loop
+       keep going to draw them in, and both real actions are one tap
+       each, since neither a call nor a WhatsApp send can ever fire
+       without a direct tap no matter how urgent the situation is. */
+    #bystander-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #E24B4A;
+      z-index: 9999;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 32px 20px 28px;
+      color: #fff;
+      text-align: center;
+      overflow-y: auto;
+    }
+    #bystander-overlay.show { display: flex; }
+
+    .bystander-title {
+      font-family: var(--display);
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1.25;
+      text-wrap: balance;
+    }
+
+    .bystander-location { margin-top: 8px; }
+
+    .bystander-location-label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      opacity: 0.8;
+    }
+
+    .bystander-area {
+      font-family: var(--display);
+      font-size: 28px;
+      font-weight: 600;
+      line-height: 1.25;
+      margin-top: 6px;
+      text-wrap: balance;
+      overflow-wrap: break-word;
+    }
+
+    .bystander-coords {
+      font-family: var(--mono);
+      font-size: 17px;
+      opacity: 0.92;
+      margin-top: 6px;
+      letter-spacing: 0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .bystander-hospital {
+      font-size: 19px;
+      font-weight: 600;
+      line-height: 1.4;
+      margin-top: 18px;
+      text-wrap: balance;
+      overflow-wrap: break-word;
+    }
+
+    .bystander-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 4px;
+    }
+
+    .bystander-action-btn {
+      flex: 1;
+      min-height: 80px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      border-radius: 18px;
+      text-decoration: none;
+      color: #fff;
+      font-family: var(--display);
+      font-weight: 700;
+      font-size: 15px;
+      line-height: 1.2;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.22);
+      transition: transform 0.1s, background 0.15s;
+    }
+    .bystander-action-btn:active { transform: scale(0.97); }
+    .bystander-btn-icon { font-size: 26px; }
+    .bystander-action-btn.call { background: #fff; color: #E24B4A; }
+    .bystander-action-btn.whatsapp { background: #25D366; }
+
+    #bystander-dismiss-btn {
+      margin-top: 16px;
+      background: transparent;
+      border: 1.5px solid rgba(255,255,255,0.55);
+      color: #fff;
+      border-radius: 12px;
+      padding: 11px 20px;
+      font-family: var(--body);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      opacity: 0.9;
+    }
+    #bystander-dismiss-btn:active { transform: scale(0.98); }
 
     /* ── Bottom Bar ────────────────────────────── */
     #bottom {
@@ -1188,6 +1273,14 @@
       .crash-message { font-size: 24px; }
       .crash-countdown { font-size: 96px; }
 
+      /* Keep the area name and hospital line readable without overflowing
+         at 390px — the two action buttons already fit full-size side by
+         side down to this width. */
+      .bystander-title { font-size: 21px; }
+      .bystander-area { font-size: 23px; }
+      .bystander-hospital { font-size: 16px; }
+      .bystander-action-btn { font-size: 13.5px; }
+
       .status-chip {
         min-width: 0;
         max-width: 40vw;
@@ -1440,6 +1533,37 @@
   </div>
   <div class="crash-countdown" id="crash-countdown">30</div>
   <button id="crash-cancel-btn" onclick="cancelCrash()">✅ I'M OK — CANCEL</button>
+</div>
+
+<!-- ── Bystander screen ──────────────────────────
+     Shown once the countdown hits zero — written for whoever FINDS the
+     phone, not the driver. Nothing on this screen requires having
+     followed the crash; it's readable and actionable cold. -->
+<div id="bystander-overlay">
+  <div class="bystander-top">
+    <div class="bystander-title">🚨 EMERGENCY — CRASH DETECTED</div>
+  </div>
+
+  <div class="bystander-mid">
+    <div class="bystander-location">
+      <div class="bystander-location-label">Location</div>
+      <div class="bystander-area" id="bystander-area">Locating area…</div>
+      <div class="bystander-coords" id="bystander-coords">—</div>
+    </div>
+    <div class="bystander-hospital" id="bystander-hospital"></div>
+  </div>
+
+  <div class="bystander-bottom">
+    <div class="bystander-actions">
+      <a href="tel:108" class="bystander-action-btn call" onclick="stopAlarm(); stopBystanderTts();">
+        <span class="bystander-btn-icon">📞</span><span>CALL 108</span>
+      </a>
+      <a href="#" id="bystander-whatsapp-btn" class="bystander-action-btn whatsapp" target="_blank" rel="noopener noreferrer" onclick="stopAlarm(); stopBystanderTts();">
+        <span class="bystander-btn-icon">💬</span><span>ALERT FAMILY</span>
+      </a>
+    </div>
+    <button id="bystander-dismiss-btn" onclick="dismissBystanderScreen()">I'm OK — Dismiss</button>
+  </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -2383,6 +2507,7 @@ let crashCountdownValue    = 30;
 let crashCountdownInterval = null;
 let alarmAudioCtx  = null;
 let alarmIntervalId = null;
+let bystanderTtsInterval = null;   // repeats the TTS announcement every ~12s until dismissed
 
 const CRASH_THRESHOLD = 40; // m/s² — configurable
 const CRASH_WINDOW_MS = 300; // 2 readings must land within this window
@@ -2496,10 +2621,10 @@ function handleDeviceMotion(e) {
   }
 }
 
-function triggerCrashFlow() {
+function triggerCrashFlow(seconds = 30) {
   if (crashFlowActive) return;
   crashFlowActive = true;
-  crashCountdownValue = 30;
+  crashCountdownValue = seconds;
   document.getElementById('crash-countdown').textContent = crashCountdownValue;
   document.getElementById('crash-overlay').classList.add('show');
 
@@ -2528,46 +2653,130 @@ function cancelCrash() {
   crashReadings = [];
 }
 
+// No response by the time the countdown hits zero — hand off from "give
+// the driver a chance to cancel" to "get a BYSTANDER to act". An
+// unconscious driver can't tap anything, so from here on everything is
+// designed for whoever finds the phone: the alarm keeps sounding (it's
+// what draws them in), and the screen puts the two things a stranger
+// actually needs — where this is, and one-tap ways to get real help —
+// in front of them without requiring any context.
 async function onCrashCountdownZero() {
-  stopAlarm();
   document.getElementById('crash-overlay').classList.remove('show');
+  showBystanderScreen();
+  // Alarm deliberately keeps playing — see startAlarm() in triggerCrashFlow().
+  // It only stops on a button tap or Dismiss (stopAlarm() calls below).
+
+  // Start the TTS loop and area lookup immediately rather than waiting on
+  // the SOS fetch below (which can take several seconds, occasionally
+  // longer on a cold Overpass query) — a bystander shouldn't get silence
+  // while that's in flight. The loop re-reads lastKnownServices on every
+  // tick, so it upgrades from the generic line to the hospital-specific
+  // one on its own the moment results land.
+  startBystanderTts();
+  populateBystanderArea();
 
   if (userLat != null && userLng != null) {
+    // Populates the results list behind this screen (and lastKnownServices,
+    // used for the hospital line), same as a manual SOS press.
     await triggerSOS();
-  } else {
-    addBot('⚠️ Crash alert triggered, but your location is not available yet.');
   }
+  updateBystanderHospital();
+}
 
-  // Neither a phone call nor a WhatsApp send can ever happen without a
-  // human tap — browsers block both without direct user interaction, no
-  // way around it. So rather than relying on a silent auto-open (which is
-  // unreliable — see below) and only showing a fallback if that happens to
-  // fail, put both one-tap actions on screen unconditionally, right where
-  // whoever is present (driver or bystander) will see them immediately.
-  let waUrl = null;
-  if (emergencyContact && userLat != null && userLng != null) {
-    const mapsLink = `https://www.google.com/maps?q=${userLat},${userLng}`;
+function showBystanderScreen() {
+  const lat = userLat, lng = userLng;
+  document.getElementById('bystander-area').textContent = 'Locating area…';
+  document.getElementById('bystander-coords').textContent =
+    (lat != null && lng != null) ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : 'Location unavailable';
+  document.getElementById('bystander-hospital').textContent = '';
+
+  // Same WhatsApp message/link the old flow used — only now it's tied to a
+  // giant, unmissable button instead of a silent auto-open attempt.
+  const waBtn = document.getElementById('bystander-whatsapp-btn');
+  if (emergencyContact && lat != null && lng != null) {
+    const mapsLink = `https://www.google.com/maps?q=${lat},${lng}`;
     const message = `🚨 CRASH ALERT from Roadent. A possible accident was detected and the driver did not respond. Location: ${mapsLink}. Please check on them or call emergency services.`;
-    waUrl = `https://wa.me/91${emergencyContact}?text=${encodeURIComponent(message)}`;
-    // Best-effort silent open — browsers commonly block window.open() when
-    // it isn't triggered by a direct gesture (a 30s countdown isn't one),
-    // so this saves a tap when it happens to work, but the button below
-    // covers it either way.
-    window.open(waUrl, '_blank');
+    waBtn.href = `https://wa.me/91${emergencyContact}?text=${encodeURIComponent(message)}`;
+    waBtn.style.display = '';
+  } else {
+    waBtn.style.display = 'none';   // no saved contact to alert — Call 108 still works alone
   }
 
-  addBot(`
-    <strong>⚠️ No response received.</strong>
-    <a href="tel:108" class="crash-action-btn call">📞 Call 108 Now</a>
-    ${waUrl ? `<a href="${waUrl}" target="_blank" rel="noopener noreferrer" class="crash-action-btn whatsapp">💬 Alert Emergency Contact on WhatsApp</a>` : ''}
-  `, true);
+  document.getElementById('bystander-overlay').classList.add('show');
+}
 
+// Reverse-geocodes straight from the browser to OSM Nominatim (confirmed
+// CORS-enabled for GET) — an area name a bystander can read aloud to a
+// 108 operator, who won't know what to do with raw coordinates alone.
+async function populateBystanderArea() {
+  const el = document.getElementById('bystander-area');
+  if (userLat == null || userLng == null) {
+    el.textContent = 'Location unavailable';
+    return;
+  }
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${userLat}&lon=${userLng}&format=json&zoom=14`,
+      { headers: { 'Accept': 'application/json' } }
+    );
+    if (!res.ok) throw new Error(`reverse geocode ${res.status}`);
+    const data = await res.json();
+    const addr = data.address || {};
+    // Nominatim sometimes prefixes the locality with an admin zone label
+    // (e.g. "Zone 13 Adyar") — strip that so a bystander reading this
+    // aloud to a 108 operator gets the plain name, not the zone number.
+    let area = addr.suburb || addr.neighbourhood || addr.city_district || addr.town || addr.village;
+    if (area) area = area.replace(/^Zone\s+\d+\s+/, '');
+    const city = addr.state_district || addr.city || addr.town || addr.county;
+    const parts = [...new Set([area, city].filter(Boolean))];
+    el.textContent = parts.length ? parts.join(', ') : 'Area name unavailable';
+  } catch (err) {
+    console.warn('[bystander] reverse geocode failed:', err);
+    el.textContent = 'Area name unavailable';
+  }
+}
+
+function updateBystanderHospital() {
   const nearestHospital = lastKnownServices.find(s => s.type === 'hospital');
-  const announceText = nearestHospital
-    ? `Emergency services information is on screen. Nearest hospital is ${nearestHospital.name}.`
-    : 'Emergency services information is on screen.';
-  announceCrash(announceText);
+  document.getElementById('bystander-hospital').textContent = nearestHospital
+    ? `🏥 ${nearestHospital.name} — ${nearestHospital.distance_km} km away`
+    : '';
+  return nearestHospital;
+}
 
+function startBystanderTts() {
+  // Re-checks lastKnownServices on every tick (rather than a snapshot taken
+  // once at start) so the announcement upgrades itself from the generic
+  // line to the hospital-specific one as soon as the SOS fetch resolves,
+  // with no extra wiring needed between the two async operations.
+  const say = () => {
+    const nearestHospital = lastKnownServices.find(s => s.type === 'hospital');
+    announceCrash(
+      nearestHospital
+        ? `Emergency. Crash detected. Nearest hospital is ${nearestHospital.name}, ${nearestHospital.distance_km} kilometres away. Please call one zero eight.`
+        : 'Emergency. Crash detected. Please call one zero eight.'
+    );
+  };
+  say();
+  bystanderTtsInterval = setInterval(say, 12000);
+}
+
+function stopBystanderTts() {
+  if (bystanderTtsInterval) {
+    clearInterval(bystanderTtsInterval);
+    bystanderTtsInterval = null;
+  }
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
+}
+
+// "I'm OK" / Dismiss — the only action that actually closes the screen.
+// Tapping Call 108 or Alert Family only silences the alarm/TTS (see their
+// onclick handlers in the HTML) so the screen stays put in case the
+// bystander needs it again right after.
+function dismissBystanderScreen() {
+  stopAlarm();
+  stopBystanderTts();
+  document.getElementById('bystander-overlay').classList.remove('show');
   crashFlowActive = false;
 }
 
@@ -2621,14 +2830,17 @@ function stopAlarm() {
 
 // ── Simulate trigger (demo insurance) — triple-tap the logo within 1.5s.
 // Deliberately no visual hint: no cursor change, no hover state, nothing
-// in the DOM marking it as interactive.
+// in the DOM marking it as interactive. Uses a short 5s countdown (real
+// motion-triggered crashes still get the full 30s) so the whole flow —
+// countdown, alarm, bystander screen, looping TTS — can be demoed
+// end-to-end in seconds instead of waiting out a real crash's grace period.
 let logoTapTimes = [];
 document.querySelector('.logo').addEventListener('click', () => {
   const now = Date.now();
   logoTapTimes = [...logoTapTimes, now].filter(t => now - t <= 1500);
   if (logoTapTimes.length >= 3) {
     logoTapTimes = [];
-    triggerCrashFlow();
+    triggerCrashFlow(5);
   }
 });
 
